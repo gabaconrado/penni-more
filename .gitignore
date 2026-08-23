@@ -1,0 +1,21 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Web tooling
+/node_modules/
+**/node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+
+# Generated reports and local artifacts
+coverage/
+dist/

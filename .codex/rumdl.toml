@@ -1,0 +1,4 @@
+# Keep Markdown readable in terminals and agent prompts.
+
+[MD013]
+line-length = 100
