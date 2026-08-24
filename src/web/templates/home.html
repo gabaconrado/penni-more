@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Home | Penni More{% endblock %}
+{% block content %}
+  <section class="hero rounded-box border border-base-300 bg-base-100 shadow-sm"
+           aria-labelledby="page-title">
+    <div class="hero-content w-full items-start px-6 py-12 text-left sm:px-10 sm:py-16">
+      <div class="max-w-2xl">
+        <p class="mb-3 text-sm font-semibold tracking-wide text-base-content/70 uppercase">Infrastructure ready</p>
+        <h1 id="page-title" class="text-4xl font-bold tracking-tight sm:text-5xl">Penni More</h1>
+        <p class="mt-5 text-lg leading-8 text-base-content/75">
+          A private, responsive home for managing personal finances. Account and transaction
+          features will be added in future releases.
+        </p>
+        <div class="alert alert-info mt-8" role="status">
+          <span>This initial page confirms that the Web GUI is running.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Penni More production Compose stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/penni-more/current
+ExecStart=%h/penni-more/current/deploy/scripts/start-production.sh
+ExecStop=%h/penni-more/current/deploy/scripts/start-production.sh down
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

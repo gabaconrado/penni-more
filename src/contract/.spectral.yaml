@@ -1,0 +1,6 @@
+extends:
+  - spectral:oas
+
+rules:
+  info-contact: false
+  oas3-api-servers: false

@@ -1,0 +1,33 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description"
+          content="A private, lightweight personal money manager.">
+    <title>{% block title %}Penni More{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  </head>
+  <body class="flex min-h-screen flex-col bg-base-200 text-base-content antialiased">
+    <a class="btn btn-primary sr-only fixed top-2 left-2 z-50 focus:not-sr-only"
+       href="#main-content">Skip to main content</a>
+    <header class="border-b border-base-300 bg-base-100"
+            data-testid="site-header">
+      <nav class="navbar mx-auto max-w-6xl px-4 sm:px-6"
+           aria-label="Primary navigation">
+        <a class="btn btn-ghost px-0 text-xl font-semibold" href="/">Penni More</a>
+      </nav>
+    </header>
+    <main id="main-content"
+          tabindex="-1"
+          class="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6 sm:py-16">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="border-t border-base-300 bg-base-100">
+      <div class="mx-auto max-w-6xl px-4 py-6 text-sm text-base-content/70 sm:px-6">
+        Private, lightweight money management.
+      </div>
+    </footer>
+  </body>
+</html>

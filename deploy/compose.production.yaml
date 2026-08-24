@@ -1,0 +1,71 @@
+services:
+  database:
+    env_file: ${PENNI_MORE_ENV_FILE:-../shared/.env}
+    restart: unless-stopped
+    logging:
+      driver: journald
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+
+  server:
+    image: localhost/penni-more-application:${PENNI_MORE_RELEASE_ID}
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+      target: application
+    command:
+      - gunicorn
+      - --bind=0.0.0.0:8000
+      - --workers=${GUNICORN_WORKERS:-1}
+      - --threads=${GUNICORN_THREADS:-4}
+      - --access-logfile=-
+      - --error-logfile=-
+      - penni_more.wsgi:application
+    env_file: ${PENNI_MORE_ENV_FILE:-../shared/.env}
+    environment:
+      DJANGO_SETTINGS_MODULE: penni_more.settings.production
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    logging:
+      driver: journald
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  nginx:
+    image: localhost/penni-more-nginx:${PENNI_MORE_RELEASE_ID}
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+      target: nginx
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      PENNI_MORE_DOMAIN: ${PENNI_MORE_DOMAIN}
+    ports: ["80:8080", "443:8443"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    volumes:
+      - certificate-state:/etc/letsencrypt:ro
+      - certificate-challenges:/var/www/certbot:ro
+    networks: [application]
+    logging:
+      driver: journald
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  certbot:
+    image: docker.io/certbot/certbot:v4.2.0
+    profiles: [operations]
+    volumes:
+      - certificate-state:/etc/letsencrypt
+      - certificate-challenges:/var/www/certbot
+
+volumes:
+  certificate-state:
+    name: penni-more-certificates
+  certificate-challenges:
+    name: penni-more-certificate-challenges

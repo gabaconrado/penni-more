@@ -1,0 +1,59 @@
+[project]
+name = "penni-more-backend"
+version = "0.1.0"
+description = "Minimal Django server for Penni More"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "Django>=5.2.8,<5.3",
+    "gunicorn>=23.0.0,<24",
+    "psycopg[binary]>=3.2.10,<4",
+]
+
+[dependency-groups]
+dev = [
+    "check-jsonschema>=0.34.0,<1",
+    "django-stubs>=5.2.7,<6",
+    "djlint>=1.36.4,<2",
+    "mypy>=1.18.2,<2",
+    "pytest>=8.4.2,<9",
+    "pytest-cov>=7.0.0,<8",
+    "pytest-django>=4.11.1,<5",
+    "PyYAML>=6.0.2,<7",
+    "ruff>=0.13.2,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "DJ"]
+
+[tool.ruff.lint.per-file-ignores]
+"penni_more/settings/*.py" = ["F403", "F405"]
+
+[tool.mypy]
+python_version = "3.14"
+plugins = ["mypy_django_plugin.main"]
+strict = true
+exclude = ['^\.venv/']
+mypy_path = "$MYPY_CONFIG_FILE_DIR"
+
+[tool.django-stubs]
+django_settings_module = "penni_more.settings.local"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "penni_more.settings.local"
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["penni_more"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

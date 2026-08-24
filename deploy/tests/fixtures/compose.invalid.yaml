@@ -1,0 +1,4 @@
+services:
+  server:
+    image: example.invalid/penni-more:test
+    definitely-not-a-compose-property: true

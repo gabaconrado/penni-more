@@ -1,0 +1,167 @@
+name: Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: 0.8.15
+
+jobs:
+  docs-shell:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: versions
+        run: echo "python=$(awk '$1 == \"python\" { print $2 }' .tool-versions)" >>"${GITHUB_OUTPUT}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ steps.versions.outputs.python }}
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: src/backend/uv.lock
+      - name: Install validation tools
+        run: |
+          cargo install rumdl --version 0.2.60 --locked
+          sudo apt-get update
+          sudo apt-get install --yes bats shellcheck
+          uv sync --project src/backend --frozen
+      - run: ./penni-more.sh check docs
+
+  backend:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.6-bookworm
+        env:
+          POSTGRES_DB: penni_more
+          POSTGRES_USER: penni_more
+          POSTGRES_PASSWORD: ci-only-password
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U penni_more -d penni_more"
+          --health-interval 2s --health-timeout 5s --health-retries 20
+    env:
+      POSTGRES_DB: penni_more
+      POSTGRES_USER: penni_more
+      POSTGRES_PASSWORD: ci-only-password
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: 5432
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: versions
+        run: echo "python=$(awk '$1 == \"python\" { print $2 }' .tool-versions)" >>"${GITHUB_OUTPUT}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ steps.versions.outputs.python }}
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: src/backend/uv.lock
+      - run: uv sync --project src/backend --frozen
+      - run: ./penni-more.sh check backend
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: backend-reports
+          path: |
+            src/backend/coverage.xml
+            src/backend/test-results.xml
+
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: versions
+        run: |
+          echo "python=$(awk '$1 == \"python\" { print $2 }' .tool-versions)" >>"${GITHUB_OUTPUT}"
+          echo "node=$(awk '$1 == \"nodejs\" { print $2 }' .tool-versions)" >>"${GITHUB_OUTPUT}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ steps.versions.outputs.python }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ steps.versions.outputs.node }}
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: src/backend/uv.lock
+      - run: uv sync --project src/backend --frozen
+      - run: npm --prefix src/web ci
+      - run: ./penni-more.sh check web
+
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: versions
+        run: echo "node=$(awk '$1 == \"nodejs\" { print $2 }' .tool-versions)" >>"${GITHUB_OUTPUT}"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ steps.versions.outputs.node }}
+          cache: npm
+          cache-dependency-path: src/contract/package-lock.json
+      - run: npm --prefix src/contract ci
+      - run: ./penni-more.sh check contract
+
+  integration:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.6-bookworm
+        env:
+          POSTGRES_DB: penni_more
+          POSTGRES_USER: penni_more
+          POSTGRES_PASSWORD: ci-only-password
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U penni_more -d penni_more"
+          --health-interval 2s --health-timeout 5s --health-retries 20
+    env:
+      POSTGRES_DB: penni_more
+      POSTGRES_USER: penni_more
+      POSTGRES_PASSWORD: ci-only-password
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: 5432
+      CI: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: versions
+        run: |
+          echo "python=$(awk '$1 == \"python\" { print $2 }' .tool-versions)" >>"${GITHUB_OUTPUT}"
+          echo "node=$(awk '$1 == \"nodejs\" { print $2 }' .tool-versions)" >>"${GITHUB_OUTPUT}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ steps.versions.outputs.python }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ steps.versions.outputs.node }}
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: src/backend/uv.lock
+      - run: uv sync --project src/backend --frozen
+      - run: npm --prefix src/web ci
+      - run: npm --prefix src/web exec playwright install -- --with-deps chromium
+      - run: ./penni-more.sh check integration
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: browser-diagnostics
+          path: |
+            src/web/playwright-report/
+            src/web/test-results/

@@ -1,0 +1,50 @@
+services:
+  database:
+    image: docker.io/library/postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-penni_more}
+      POSTGRES_USER: ${POSTGRES_USER:-penni_more}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-penni_more_local}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+    networks: [application]
+    volumes:
+      - database-data:/var/lib/postgresql/data
+
+  server:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+      target: application
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-penni_more}
+      POSTGRES_USER: ${POSTGRES_USER:-penni_more}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-penni_more_local}
+      POSTGRES_HOST: database
+      POSTGRES_PORT: "5432"
+      PENNI_MORE_DOMAIN: ${PENNI_MORE_DOMAIN:-localhost}
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os, urllib.request;
+          request = urllib.request.Request('http://127.0.0.1:8000/health/ready',
+          headers={'Host': os.environ['PENNI_MORE_DOMAIN'], 'X-Forwarded-Proto': 'https'});
+          urllib.request.urlopen(request, timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [application]
+
+networks:
+  application:
+
+volumes:
+  database-data:
+    name: ${PENNI_MORE_DATABASE_VOLUME:-penni-more-database}

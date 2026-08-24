@@ -1,0 +1,22 @@
+server {
+    listen 8080;
+    server_name ${PENNI_MORE_DOMAIN};
+    location ^~ /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 8443 ssl;
+    server_name ${PENNI_MORE_DOMAIN};
+    ssl_certificate /etc/letsencrypt/live/${PENNI_MORE_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${PENNI_MORE_DOMAIN}/privkey.pem;
+    location /static/ { alias /srv/static/; }
+    location = /health/ready { return 404; }
+    location ~ ^/(openapi|swagger|api-docs) { return 404; }
+    location / {
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_pass http://server:8000;
+    }
+}

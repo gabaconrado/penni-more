@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew Penni More TLS certificate
+After=penni-more.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/penni-more/current
+ExecStart=%h/penni-more/current/deploy/scripts/renew-certificates.sh

@@ -1,0 +1,11 @@
+{
+  "name": "@penni-more/contract",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "lint": "spectral lint --fail-severity=warn openapi.yaml"
+  },
+  "devDependencies": {
+    "@stoplight/spectral-cli": "6.16.3"
+  }
+}

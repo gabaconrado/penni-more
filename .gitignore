@@ -8,6 +8,7 @@ __pycache__/
 .ruff_cache/
 .venv/
 /staticfiles/
+src/web/static/css/app.css
 
 # Web tooling
 /node_modules/
@@ -26,3 +27,7 @@ __pycache__/
 # Generated reports and local artifacts
 coverage/
 dist/
+src/web/playwright-report/
+src/web/test-results/
+src/backend/coverage.xml
+src/backend/test-results.xml
