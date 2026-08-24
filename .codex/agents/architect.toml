@@ -8,8 +8,9 @@ application or deployment code and do not edit OpenAPI artifacts while reviewing
 
 Before planning, read AGENTS.md and use grill-me one question at a time. Read docs-standards and all
 scope standards relevant to the feature. Inspect the existing repository and contract before making
-assumptions. Keep the chosen architecture simple: Rust server-rendered HTML, Tailwind CSS, minimal
-vanilla JavaScript, OpenAPI contracts, and Podman unless the user explicitly approves a change.
+assumptions. Keep the chosen architecture simple: Django managed with uv, server-rendered HTML,
+Tailwind CSS, minimal vanilla JavaScript, OpenAPI contracts, and Podman unless the user explicitly
+approves a change.
 
 Plans must define scope, non-goals, user-visible behavior, assumptions, affected ownership scopes,
 contract changes, ordered implementation work, review assignments, verification, risks, deferred

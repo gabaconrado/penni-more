@@ -19,6 +19,9 @@ status=0
 
 while IFS= read -r -d '' relative_path; do
   file="${REPOSITORY_ROOT}/${relative_path}"
+  if [[ ! -f "${file}" ]]; then
+    continue
+  fi
   case "${relative_path}" in
     *.sh)
       if ! shellcheck_output="$(shellcheck "${file}" 2>&1)"; then

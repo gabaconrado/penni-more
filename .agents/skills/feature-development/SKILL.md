@@ -25,7 +25,7 @@ before contacting an external operational service. Never perform a Git remote wr
 4. Dispatch the backend, web GUI, and contract coding agents whose scopes are affected. Run
    independent assignments concurrently when the environment permits it.
 5. Dispatch the matching reviewers after implementation:
-   - the backend reviewer checks Rust backend work;
+   - the backend reviewer checks Django backend work;
    - the web GUI reviewer checks web work;
    - the architect reviews contract work and cross-scope consistency.
 6. Give every actionable finding back to the responsible coding agent. Repeat implementation and

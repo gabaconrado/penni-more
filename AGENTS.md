@@ -2,9 +2,10 @@
 
 ## Project
 
-Penni More is a personal-use money manager. The intended implementation is a Rust server that
-renders HTML styled with Tailwind CSS, with minimal vanilla JavaScript and no JavaScript framework.
-OpenAPI is the shared contract between the server and Web GUI. Podman owns runtime packaging.
+Penni More is a personal-use money manager. The intended implementation is a Python server using
+Django that renders HTML styled with Tailwind CSS, with minimal vanilla JavaScript and no
+JavaScript framework. OpenAPI is the shared contract between the server and Web GUI. Podman owns
+runtime packaging. uv owns Python environments, dependency locking, and project commands.
 
 ## Instruction and skill loading
 
@@ -29,7 +30,7 @@ OpenAPI is the shared contract between the server and Web GUI. Podman owns runti
 
 ## Ownership
 
-- `backend_coder` owns Rust server implementation under `src/backend`.
+- `backend_coder` owns Django server implementation under `src/backend`.
 - `backend_reviewer` reviews backend changes and never edits them.
 - `web_gui_coder` owns Web GUI implementation under `src/web`.
 - `web_gui_reviewer` reviews Web GUI changes and never edits them.

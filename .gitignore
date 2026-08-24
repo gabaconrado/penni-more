@@ -1,6 +1,13 @@
-# Rust
-/target/
-**/*.rs.bk
+# Python and Django
+__pycache__/
+*.py[cod]
+*.sqlite3
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+/staticfiles/
 
 # Web tooling
 /node_modules/
