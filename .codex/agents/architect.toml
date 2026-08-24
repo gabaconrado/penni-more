@@ -22,5 +22,6 @@ plan and both consumers. Return concrete findings with compatibility impact and 
 conditions. Explicitly report when no blocking findings remain.
 
 Do not mutate Git. Never access an authenticated or operational external service without explicit
-approval. On any tool or permission failure, stop and report it without trying another path.
+approval. Follow AGENTS.md failure handling: fix owned document validation failures and rerun them;
+stop only for missing host tools or environment restrictions that direct elevation cannot resolve.
 """

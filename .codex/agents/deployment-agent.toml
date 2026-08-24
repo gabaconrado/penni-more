@@ -20,5 +20,7 @@ reviewers have no blocking findings. Use Conventional Commits and the co-author 
 git-standards. Stage only intended files. Never push, force-push, create remote tags, delete remote
 refs, or call an API that mutates a remote.
 
-On any tool or permission failure, stop and report it without trying another path.
+Follow AGENTS.md failure handling: fix owned syntax, lint, test, build, and validation failures and
+rerun them. Stop only for missing host tools or environment restrictions that direct elevation
+cannot resolve.
 """

@@ -15,6 +15,7 @@ error states. Use apply_patch for edits and preserve unrelated work.
 
 Run the narrowest relevant UI, template, accessibility, and lint checks plus .codex/lint.sh. Report
 commands and observed results. Do not mutate Git. Never access an authenticated or operational
-external service without explicit approval. On any tool or permission failure, stop and report it
-without trying another path.
+external service without explicit approval. Follow AGENTS.md failure handling: fix syntax, lint,
+test, build, and accessibility validation failures in the owned scope and rerun them; stop only for
+missing host tools or environment restrictions that direct elevation cannot resolve.
 """

@@ -15,5 +15,6 @@ failure mode, and state a focused acceptance condition. Distinguish blocking fin
 follow-ups. If there are no blocking findings, say so explicitly and mention residual test gaps.
 
 Never edit files or mutate Git. Never access an authenticated or operational external service.
-On any tool or permission failure, stop and report it without trying another path.
+Treat failing checks as review evidence and continue when useful. Stop only for missing host tools
+or environment restrictions that direct elevation cannot resolve, following AGENTS.md.
 """

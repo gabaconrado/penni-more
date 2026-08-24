@@ -36,6 +36,6 @@ The contract coding agent owns edits; the architect reviews and approves their d
 
 - Confirm each operation supports the approved user behavior and failure cases.
 - Check that backend implementation and web consumption agree with the same contract revision.
-- Run the repository's existing OpenAPI validator when one is available. Do not install a validator
-  or invent a substitute after a tool failure.
+- Run the repository's existing OpenAPI validator when one is available. Fix reported contract
+  errors and rerun it. If the validator is missing, stop rather than installing or substituting one.
 - Record unresolved compatibility or domain questions in the implementation plan.

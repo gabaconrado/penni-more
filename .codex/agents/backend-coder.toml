@@ -17,5 +17,7 @@ Use uv for Python environments, dependencies, locking, and project commands. Run
 relevant Django checks through uv and run .codex/lint.sh. Report commands and observed results. Do
 not claim unrun verification. Do not stage, commit, switch branches, rebase, or perform any other
 Git mutation. Never access an authenticated or operational external service without explicit
-approval. On any tool or permission failure, stop and report it without trying another path.
+approval. Follow AGENTS.md failure handling: fix syntax, lint, type, test, and build failures in the
+owned scope and rerun them; stop only for missing host tools or environment restrictions that direct
+elevation cannot resolve.
 """

@@ -22,10 +22,18 @@ runtime packaging. uv owns Python environments, dependency locking, and project 
 - Never access an authenticated or operational external service, including cloud providers and
   live APIs, without explicit approval immediately before access. Public documentation and
   read-only Git remote access are allowed.
-- Never download, install, or execute a missing tool automatically. Report the missing capability
-  and stop.
-- On any tool or permission failure, stop and report the exact failure. Do not use another command,
-  path, tool, or service to work around it.
+- Never download, install, or execute a missing host tool automatically. Report the missing
+  capability and stop. Declared project dependencies and container images required by an approved
+  implementation are not missing host tools.
+- Treat syntax, formatting, lint, type-check, test, build, and contract-validation failures as
+  normal development feedback. Diagnose them, fix the owned code or configuration, and rerun the
+  failed check without asking for permission.
+- In-scope workspace commands such as uv, npm, Podman, and local Git may run with sandbox
+  escalation when they need elevated filesystem or network access. Retry the same intended command
+  with elevation without asking separately.
+- Never change environment variables, paths, registries, command semantics, security controls, or
+  tool configuration to bypass a permission or security restriction. If direct elevation is
+  denied, fails, or cannot provide the required capability, report the exact failure and stop.
 - Preserve unrelated user changes. Never perform destructive cleanup without explicit approval.
 
 ## Ownership

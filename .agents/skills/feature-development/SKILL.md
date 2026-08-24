@@ -10,9 +10,12 @@ Use this workflow for every requested Penni More feature. Read
 
 ## Hard stops
 
-Stop and report immediately when a required tool or permission fails. Do not substitute another
-tool, bypass the restriction, or silently skip the affected check. Obtain explicit user approval
-before contacting an external operational service. Never perform a Git remote write.
+Fix implementation and validation failures within the owning scope and rerun the affected check.
+Stop when a required host tool is missing. An in-scope workspace command may be retried with direct
+sandbox elevation, but do not alter its environment, path, registry, semantics, security controls,
+or configuration to bypass a restriction. Stop and report when direct elevation fails or is denied.
+Obtain explicit user approval before contacting an authenticated or operational external service.
+Never perform a Git remote write.
 
 ## Cycle
 
