@@ -20,7 +20,7 @@ trap cleanup EXIT
 "${compose[@]}" --profile operations run --rm certbot certonly --webroot -w /var/www/certbot \
   --non-interactive --agree-tos --email "${LETSENCRYPT_EMAIL}" -d "${PENNI_MORE_DOMAIN}"
 "${compose[@]}" --profile operations run --rm --entrypoint sh certbot -c \
-  'chgrp -R 101 /etc/letsencrypt/archive && find /etc/letsencrypt/archive -type d -exec chmod 0750 {} + && find /etc/letsencrypt/archive -type f -exec chmod 0640 {} +'
+  'chgrp 101 /etc/letsencrypt && chmod 0750 /etc/letsencrypt && chgrp -R 101 /etc/letsencrypt/live /etc/letsencrypt/archive && find /etc/letsencrypt/live /etc/letsencrypt/archive -type d -exec chmod 0750 {} + && find /etc/letsencrypt/archive -type f -exec chmod 0640 {} +'
 cleanup
 trap - EXIT
 "${compose[@]}" up -d nginx

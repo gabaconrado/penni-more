@@ -45,8 +45,17 @@ podman compose "${compose_files[@]}" exec -T database pg_dump \
 find "${shared_dir}/backups" -type f -name '*.dump' ! -path "${backup}" -delete
 
 podman compose "${compose_files[@]}" run --rm server python manage.py migrate --noinput
-previous_target="$(readlink -f "${remote_dir}/current" 2>/dev/null || true)"
-[[ -z "${previous_target}" ]] || ln -sfn "${previous_target}" "${remote_dir}/previous"
+previous_target=''
+if [[ -L "${remote_dir}/current" ]]; then
+  candidate_target="$(readlink -f "${remote_dir}/current" 2>/dev/null || true)"
+  if [[ "${candidate_target}" == "${remote_dir}/releases/"* \
+    && -d "${candidate_target}" \
+    && -f "${candidate_target}/deploy/compose.yaml" \
+    && -f "${candidate_target}/deploy/compose.production.yaml" ]]; then
+    previous_target="${candidate_target}"
+    ln -sfn "${previous_target}" "${remote_dir}/previous"
+  fi
+fi
 ln -sfn "${release_dir}" "${remote_dir}/current"
 podman compose "${compose_files[@]}" up -d server
 
@@ -91,3 +100,7 @@ fi
 find "${remote_dir}/releases" -mindepth 1 -maxdepth 1 -type d \
   ! -path "$(readlink -f "${remote_dir}/current")" \
   ! -path "$(readlink -f "${remote_dir}/previous" 2>/dev/null || printf '/nonexistent')" -exec rm -rf -- {} +
+
+if ! podman system prune --force; then
+  printf 'Warning: Podman cleanup failed after successful deployment.\n' >&2
+fi

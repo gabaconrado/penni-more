@@ -12,5 +12,5 @@ compose=(podman compose -p penni-more -f "${script_dir}/deploy/compose.yaml" -f 
 "${compose[@]}" --profile operations run --rm certbot renew --webroot -w /var/www/certbot \
   --deploy-hook 'true'
 "${compose[@]}" --profile operations run --rm --entrypoint sh certbot -c \
-  'chgrp -R 101 /etc/letsencrypt/archive && find /etc/letsencrypt/archive -type d -exec chmod 0750 {} + && find /etc/letsencrypt/archive -type f -exec chmod 0640 {} +'
+  'chgrp 101 /etc/letsencrypt && chmod 0750 /etc/letsencrypt && chgrp -R 101 /etc/letsencrypt/live /etc/letsencrypt/archive && find /etc/letsencrypt/live /etc/letsencrypt/archive -type d -exec chmod 0750 {} + && find /etc/letsencrypt/archive -type f -exec chmod 0640 {} +'
 "${compose[@]}" exec -T nginx nginx -s reload

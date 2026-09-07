@@ -5,6 +5,103 @@ setup() {
   script="${repository_root}/deploy/scripts/remote-release.sh"
 }
 
+teardown() {
+  if [[ -n "${fixture_root:-}" ]]; then
+    rm -rf "${fixture_root}"
+  fi
+}
+
+create_remote_fixture() {
+  fixture_root="$(mktemp -d)"
+  fixture_remote="${fixture_root}/remote"
+  fixture_calls="${fixture_root}/calls"
+  mkdir -p \
+    "${fixture_remote}/shared" \
+    "${fixture_remote}/releases/release-1/deploy" \
+    "${fixture_root}/bin"
+  touch \
+    "${fixture_remote}/releases/release-1/deploy/compose.yaml" \
+    "${fixture_remote}/releases/release-1/deploy/compose.production.yaml"
+  cat >"${fixture_remote}/shared/.env" <<'ENV'
+PENNI_MORE_ENVIRONMENT=production
+PENNI_MORE_DOMAIN=money.example.test
+POSTGRES_USER=penni_more
+POSTGRES_DB=penni_more
+ENV
+  cat >"${fixture_remote}/releases/release-1/release.env" <<'ENV'
+PENNI_MORE_RELEASE_ID=release-1
+ENV
+  cat >"${fixture_root}/bin/podman" <<'SCRIPT'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${CALL_LOG}"
+if [[ "${FAIL_READY:-false}" == true && "$*" == *"/health/ready"* ]]; then
+  exit 1
+fi
+if [[ "${FAIL_PRUNE:-false}" == true && "$*" == "system prune --force" ]]; then
+  exit 1
+fi
+SCRIPT
+  cat >"${fixture_root}/bin/curl" <<'SCRIPT'
+#!/usr/bin/env bash
+printf 'curl %s\n' "$*" >>"${CALL_LOG}"
+if [[ "${PUBLIC_HEALTHY:-false}" == true ]]; then
+  printf '{"status": "ok"}'
+else
+  exit 1
+fi
+SCRIPT
+  cat >"${fixture_root}/bin/sleep" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 0
+SCRIPT
+  cat >"${fixture_root}/bin/find" <<'SCRIPT'
+#!/usr/bin/env bash
+printf 'find %s\n' "$*" >>"${CALL_LOG}"
+exec /usr/bin/find "$@"
+SCRIPT
+  chmod +x \
+    "${fixture_root}/bin/podman" \
+    "${fixture_root}/bin/curl" \
+    "${fixture_root}/bin/sleep" \
+    "${fixture_root}/bin/find"
+}
+
+run_remote_fixture() {
+  run env \
+    PATH="${fixture_root}/bin:${PATH}" \
+    CALL_LOG="${fixture_calls}" \
+    FAIL_READY="${FAIL_READY:-false}" \
+    FAIL_PRUNE="${FAIL_PRUNE:-false}" \
+    PUBLIC_HEALTHY="${PUBLIC_HEALTHY:-false}" \
+    "${script}" "${fixture_remote}" release-1
+}
+
+create_certificate_fixture() {
+  fixture_root="$(mktemp -d)"
+  fixture_calls="${fixture_root}/calls"
+  mkdir -p \
+    "${fixture_root}/deploy/scripts" \
+    "${fixture_root}/deploy/nginx" \
+    "${fixture_root}/shared" \
+    "${fixture_root}/bin"
+  cp \
+    "${repository_root}/deploy/scripts/bootstrap-certificates.sh" \
+    "${repository_root}/deploy/scripts/renew-certificates.sh" \
+    "${fixture_root}/deploy/scripts/"
+  cat >"${fixture_root}/shared/.env" <<'ENV'
+PENNI_MORE_DOMAIN=money.example.test
+LETSENCRYPT_EMAIL=operator@example.test
+ENV
+  cat >"${fixture_root}/release.env" <<'ENV'
+PENNI_MORE_RELEASE_ID=release-1
+ENV
+  cat >"${fixture_root}/bin/podman" <<'SCRIPT'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"${CALL_LOG}"
+SCRIPT
+  chmod +x "${fixture_root}/bin/podman"
+}
+
 @test "remote deployment uses a non-waiting advisory lock" {
   grep -Fq 'flock -n 9' "${script}"
 }
@@ -133,4 +230,96 @@ SCRIPT
   renew_line="$(grep -n 'certbot renew' "${renewal}" | cut -d: -f1)"
   reload_line="$(grep -n 'nginx -s reload' "${renewal}" | cut -d: -f1)"
   [ "${renew_line}" -lt "${reload_line}" ]
+}
+
+@test "certificate bootstrap normalizes every path before starting nginx" {
+  create_certificate_fixture
+
+  run env PATH="${fixture_root}/bin:${PATH}" CALL_LOG="${fixture_calls}" \
+    "${fixture_root}/deploy/scripts/bootstrap-certificates.sh"
+
+  [ "${status}" -eq 0 ]
+  grep -Fq 'chgrp 101 /etc/letsencrypt && chmod 0750 /etc/letsencrypt' "${fixture_calls}"
+  grep -Fq 'chgrp -R 101 /etc/letsencrypt/live /etc/letsencrypt/archive' "${fixture_calls}"
+  grep -Fq 'find /etc/letsencrypt/live /etc/letsencrypt/archive -type d -exec chmod 0750 {} +' "${fixture_calls}"
+  grep -Fq 'find /etc/letsencrypt/archive -type f -exec chmod 0640 {} +' "${fixture_calls}"
+  permission_line="$(grep -n 'chgrp 101 /etc/letsencrypt' "${fixture_calls}" | cut -d: -f1)"
+  nginx_line="$(grep -n 'up -d nginx' "${fixture_calls}" | cut -d: -f1)"
+  [ "${permission_line}" -lt "${nginx_line}" ]
+}
+
+@test "certificate renewal normalizes every path before reloading nginx" {
+  create_certificate_fixture
+
+  run env PATH="${fixture_root}/bin:${PATH}" CALL_LOG="${fixture_calls}" \
+    "${fixture_root}/deploy/scripts/renew-certificates.sh"
+
+  [ "${status}" -eq 0 ]
+  grep -Fq 'chgrp 101 /etc/letsencrypt && chmod 0750 /etc/letsencrypt' "${fixture_calls}"
+  grep -Fq 'chgrp -R 101 /etc/letsencrypt/live /etc/letsencrypt/archive' "${fixture_calls}"
+  grep -Fq 'find /etc/letsencrypt/live /etc/letsencrypt/archive -type d -exec chmod 0750 {} +' "${fixture_calls}"
+  grep -Fq 'find /etc/letsencrypt/archive -type f -exec chmod 0640 {} +' "${fixture_calls}"
+  permission_line="$(grep -n 'chgrp 101 /etc/letsencrypt' "${fixture_calls}" | cut -d: -f1)"
+  reload_line="$(grep -n 'exec -T nginx nginx -s reload' "${fixture_calls}" | cut -d: -f1)"
+  [ "${permission_line}" -lt "${reload_line}" ]
+}
+
+@test "failed first deployment does not create or invoke an invalid rollback target" {
+  create_remote_fixture
+  FAIL_READY=true
+
+  run_remote_fixture
+
+  [ "${status}" -ne 0 ]
+  [ ! -e "${fixture_remote}/previous" ]
+  [ ! -L "${fixture_remote}/previous" ]
+  [ "$(readlink -f "${fixture_remote}/current")" = "${fixture_remote}/releases/release-1" ]
+  ! grep -Fq "${fixture_remote}/current/deploy/compose.yaml" "${fixture_calls}"
+}
+
+@test "failed deployment restores a valid prior release" {
+  create_remote_fixture
+  mkdir -p "${fixture_remote}/releases/release-0/deploy"
+  touch \
+    "${fixture_remote}/releases/release-0/deploy/compose.yaml" \
+    "${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
+  ln -s "${fixture_remote}/releases/release-0" "${fixture_remote}/current"
+  FAIL_READY=true
+
+  run_remote_fixture
+
+  [ "${status}" -ne 0 ]
+  [ "$(readlink -f "${fixture_remote}/previous")" = "${fixture_remote}/releases/release-0" ]
+  [ "$(readlink -f "${fixture_remote}/current")" = "${fixture_remote}/releases/release-0" ]
+  grep -Fq -- \
+    "-f ${fixture_remote}/releases/release-0/deploy/compose.yaml -f ${fixture_remote}/releases/release-0/deploy/compose.production.yaml up -d server nginx" \
+    "${fixture_calls}"
+}
+
+@test "healthy deployment prunes safely after public health and retention" {
+  create_remote_fixture
+  PUBLIC_HEALTHY=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 0 ]
+  [ "$(grep -Fxc 'system prune --force' "${fixture_calls}")" -eq 1 ]
+  ! grep -Eq 'system prune .*--all|system prune .*--volumes' "${fixture_calls}"
+  health_line="$(grep -n '^curl .*health/live$' "${fixture_calls}" | cut -d: -f1)"
+  retention_line="$(grep -n "^find ${fixture_remote}/releases " "${fixture_calls}" | cut -d: -f1)"
+  prune_line="$(grep -n '^system prune --force$' "${fixture_calls}" | cut -d: -f1)"
+  [ "${health_line}" -lt "${retention_line}" ]
+  [ "${retention_line}" -lt "${prune_line}" ]
+}
+
+@test "prune failure warns without failing a healthy deployment" {
+  create_remote_fixture
+  PUBLIC_HEALTHY=true
+  FAIL_PRUNE=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Warning: Podman cleanup failed after successful deployment."* ]]
+  [ "$(grep -Fxc 'system prune --force' "${fixture_calls}")" -eq 1 ]
 }
