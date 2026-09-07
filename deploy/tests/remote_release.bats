@@ -2,13 +2,46 @@
 
 setup() {
   repository_root="$(cd "${BATS_TEST_DIRNAME}/../.." && pwd)"
-  script="${repository_root}/deploy/scripts/remote-release.sh"
+  supervisor="${repository_root}/deploy/scripts/remote-release.sh"
+  worker="${repository_root}/deploy/scripts/remote-release-worker.sh"
+  script="${worker}"
 }
 
 teardown() {
+  if [[ -n "${supervisor_pid:-}" ]]; then
+    if [[ -n "${lock_release:-}" ]]; then
+      touch "${lock_release}"
+      for _ in {1..100}; do
+        if ! kill -0 "${supervisor_pid}" 2>/dev/null; then
+          break
+        fi
+        /bin/sleep 0.01
+      done
+    fi
+    kill "${supervisor_pid}" 2>/dev/null || true
+    wait "${supervisor_pid}" 2>/dev/null || true
+  fi
+  if [[ -n "${helper_pid:-}" ]]; then
+    kill "${helper_pid}" 2>/dev/null || true
+    for _ in {1..100}; do
+      if ! kill -0 "${helper_pid}" 2>/dev/null; then
+        break
+      fi
+      /bin/sleep 0.01
+    done
+  fi
   if [[ -n "${fixture_root:-}" ]]; then
     rm -rf "${fixture_root}"
   fi
+}
+
+create_lock_fixture() {
+  fixture_root="$(mktemp -d)"
+  fixture_remote="${fixture_root}/remote"
+  fixture_scripts="${fixture_root}/deploy/scripts"
+  mkdir -p "${fixture_remote}" "${fixture_scripts}"
+  cp "${supervisor}" "${fixture_scripts}/remote-release.sh"
+  chmod +x "${fixture_scripts}/remote-release.sh"
 }
 
 create_remote_fixture() {
@@ -102,8 +135,98 @@ SCRIPT
   chmod +x "${fixture_root}/bin/podman"
 }
 
-@test "remote deployment uses a non-waiting advisory lock" {
-  grep -Fq 'flock -n 9' "${script}"
+@test "remote deployment supervises the worker with a closed non-waiting lock" {
+  grep -Fq 'flock --exclusive --nonblock --close' "${supervisor}"
+  ! grep -Fq 'deployment.lock' "${worker}"
+}
+
+@test "active supervised deployment excludes a concurrent deployment" {
+  create_lock_fixture
+  lock_started="${fixture_root}/lock-started"
+  lock_release="${fixture_root}/lock-release"
+  cat >"${fixture_scripts}/remote-release-worker.sh" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+touch "${LOCK_STARTED}"
+while [[ ! -e "${LOCK_RELEASE}" ]]; do
+  /bin/sleep 0.01
+done
+SCRIPT
+  chmod +x "${fixture_scripts}/remote-release-worker.sh"
+
+  env LOCK_STARTED="${lock_started}" LOCK_RELEASE="${lock_release}" \
+    "${fixture_scripts}/remote-release.sh" "${fixture_remote}" release-1 \
+    >"${fixture_root}/first-output" 2>&1 &
+  supervisor_pid=$!
+  for _ in {1..100}; do
+    [[ -e "${lock_started}" ]] && break
+    /bin/sleep 0.01
+  done
+  [ -e "${lock_started}" ]
+
+  run "${fixture_scripts}/remote-release.sh" "${fixture_remote}" release-2
+
+  [ "${status}" -eq 3 ]
+  [[ "${output}" == *"Another deployment is already running."* ]]
+  touch "${lock_release}"
+  wait "${supervisor_pid}"
+  supervisor_pid=''
+}
+
+@test "surviving worker helper does not retain the deployment lock" {
+  create_lock_fixture
+  helper_pid_file="${fixture_root}/helper-pid"
+  cat >"${fixture_scripts}/remote-release-worker.sh" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+(
+  trap 'exit 0' TERM
+  while :; do
+    /bin/sleep 1
+  done
+) </dev/null >/dev/null 2>&1 &
+printf '%s\n' "$!" >"${HELPER_PID_FILE}"
+SCRIPT
+  chmod +x "${fixture_scripts}/remote-release-worker.sh"
+
+  run env HELPER_PID_FILE="${helper_pid_file}" \
+    "${fixture_scripts}/remote-release.sh" "${fixture_remote}" release-1
+
+  [ "${status}" -eq 0 ]
+  for _ in {1..100}; do
+    [[ -s "${helper_pid_file}" ]] && break
+    /bin/sleep 0.01
+  done
+  [ -s "${helper_pid_file}" ]
+  helper_pid="$(cat "${helper_pid_file}")"
+  kill -0 "${helper_pid}"
+
+  run flock --exclusive --nonblock "${fixture_remote}/deployment.lock" true
+
+  [ "${status}" -eq 0 ]
+  kill "${helper_pid}"
+  for _ in {1..100}; do
+    if ! kill -0 "${helper_pid}" 2>/dev/null; then
+      break
+    fi
+    /bin/sleep 0.01
+  done
+  ! kill -0 "${helper_pid}" 2>/dev/null
+  helper_pid=''
+}
+
+@test "supervisor propagates a non-contention worker failure" {
+  create_lock_fixture
+  cat >"${fixture_scripts}/remote-release-worker.sh" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 42
+SCRIPT
+  chmod +x "${fixture_scripts}/remote-release-worker.sh"
+
+  run "${fixture_scripts}/remote-release.sh" "${fixture_remote}" release-1
+
+  [ "${status}" -eq 42 ]
+  [[ "${output}" != *"Another deployment is already running."* ]]
 }
 
 @test "backup precedes the single explicit migration" {
