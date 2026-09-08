@@ -10,7 +10,124 @@ release_id="${2:?release id required}"
 [[ "${release_id}" =~ ^[A-Za-z0-9._-]+$ ]] || { printf 'Unsafe release identifier.\n' >&2; exit 2; }
 release_dir="${remote_dir}/releases/${release_id}"
 shared_dir="${remote_dir}/shared"
-compose_files=(-p penni-more -f "${release_dir}/deploy/compose.yaml" -f "${release_dir}/deploy/compose.production.yaml")
+previous_target=''
+recovery_armed=false
+
+compose_release() {
+  local target="${1:?release directory required}"
+  local target_id="${2:?release id required}"
+  shift 2
+  PENNI_MORE_RELEASE_ID="${target_id}" podman compose -p penni-more \
+    -f "${target}/deploy/compose.yaml" \
+    -f "${target}/deploy/compose.production.yaml" "$@"
+}
+
+wait_for_database() {
+  local target="${1:?release directory required}"
+  local target_id="${2:?release id required}"
+  for _ in {1..60}; do
+    if compose_release "${target}" "${target_id}" exec -T database pg_isready \
+      -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+wait_for_server() {
+  local target="${1:?release directory required}"
+  local target_id="${2:?release id required}"
+  for _ in {1..60}; do
+    if compose_release "${target}" "${target_id}" exec -T server \
+      python -c "import os, urllib.request; request = urllib.request.Request('http://127.0.0.1:8000/health/ready', headers={'Host': os.environ['PENNI_MORE_DOMAIN'], 'X-Forwarded-Proto': 'https'}); urllib.request.urlopen(request, timeout=2)"; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+capture_previous_target() {
+  local candidate_target=''
+  if [[ -L "${remote_dir}/current" ]]; then
+    candidate_target="$(readlink -f "${remote_dir}/current" 2>/dev/null || true)"
+  fi
+  if [[ "${candidate_target}" == "${remote_dir}/releases/"* \
+    && -d "${candidate_target}" \
+    && -f "${candidate_target}/deploy/compose.yaml" \
+    && -f "${candidate_target}/deploy/compose.production.yaml" ]]; then
+    previous_target="${candidate_target}"
+  fi
+}
+
+current_points_to_failed_release() {
+  local current_target=''
+  [[ -L "${remote_dir}/current" ]] || return 1
+  current_target="$(readlink -f "${remote_dir}/current" 2>/dev/null || true)"
+  [[ "${current_target}" == "${release_dir}" ]]
+}
+
+recover_previous_release() {
+  local original_status=$?
+  local recovery_failed=false
+  local previous_id=''
+  if [[ "${recovery_armed}" != true ]]; then
+    trap - EXIT
+    exit "${original_status}"
+  fi
+  recovery_armed=false
+  trap - EXIT
+  set +e
+
+  printf 'Deployment failed with status %s; attempting recovery.\n' "${original_status}" >&2
+  if ! compose_release "${release_dir}" "${release_id}" down; then
+    recovery_failed=true
+  fi
+  if [[ -n "${previous_target}" ]]; then
+    previous_id="$(basename "${previous_target}")"
+    if ! ln -sfn "${previous_target}" "${remote_dir}/current" \
+      || ! compose_release "${previous_target}" "${previous_id}" up -d database \
+      || ! wait_for_database "${previous_target}" "${previous_id}" \
+      || ! compose_release "${previous_target}" "${previous_id}" up -d server \
+      || ! wait_for_server "${previous_target}" "${previous_id}" \
+      || ! compose_release "${previous_target}" "${previous_id}" --profile operations run \
+        --rm --entrypoint sh certbot \
+        -c "test -f '/etc/letsencrypt/live/${PENNI_MORE_DOMAIN}/fullchain.pem'" \
+      || ! compose_release "${previous_target}" "${previous_id}" up -d nginx; then
+      recovery_failed=true
+    fi
+  else
+    if current_points_to_failed_release && ! rm -- "${remote_dir}/current"; then
+      recovery_failed=true
+    fi
+    printf 'No previous release code is available to restart.\n' >&2
+  fi
+
+  printf 'Database migrations and data were not rolled back.\n' >&2
+  if [[ "${recovery_failed}" == true ]]; then
+    printf 'Previous-release recovery could not be verified.\n' >&2
+  elif [[ -n "${previous_target}" ]]; then
+    printf 'Previous release code was restarted.\n' >&2
+  fi
+  exit "${original_status}"
+}
+
+certificate_exists() {
+  compose_release "${release_dir}" "${release_id}" --profile operations run --rm \
+    --entrypoint sh certbot \
+    -c "test -f '/etc/letsencrypt/live/${PENNI_MORE_DOMAIN}/fullchain.pem'"
+}
+
+wait_for_public_health() {
+  for _ in {1..60}; do
+    if [[ "$(curl --fail --silent --show-error "https://${PENNI_MORE_DOMAIN}/health/live" 2>/dev/null || true)" == '{"status": "ok"}' ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 
 set -a
 # shellcheck disable=SC1091
@@ -21,78 +138,39 @@ set +a
 [[ "${PENNI_MORE_ENVIRONMENT:-}" == production ]] || { printf 'Remote environment is not production.\n' >&2; exit 2; }
 
 ln -sfn "${shared_dir}" "${release_dir}/shared"
-podman compose "${compose_files[@]}" build server nginx
-podman compose "${compose_files[@]}" run --rm --no-deps server \
+capture_previous_target
+compose_release "${release_dir}" "${release_id}" build server nginx
+compose_release "${release_dir}" "${release_id}" run --rm --no-deps server \
   python manage.py check --deploy --fail-level WARNING
-podman compose "${compose_files[@]}" up -d database
 
-for _ in {1..60}; do
-  if podman compose "${compose_files[@]}" exec -T database pg_isready \
-    -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null; then break; fi
-  sleep 1
-done
-podman compose "${compose_files[@]}" exec -T database pg_isready \
-  -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" >/dev/null
+recovery_armed=true
+trap recover_previous_release EXIT
+compose_release "${release_dir}" "${release_id}" down
+compose_release "${release_dir}" "${release_id}" up -d database
+wait_for_database "${release_dir}" "${release_id}"
 
 mkdir -p "${shared_dir}/backups"
 backup="${shared_dir}/backups/${release_id}.dump"
-podman compose "${compose_files[@]}" exec -T database pg_dump \
+compose_release "${release_dir}" "${release_id}" exec -T database pg_dump \
   -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" --format=custom >"${backup}"
 find "${shared_dir}/backups" -type f -name '*.dump' ! -path "${backup}" -delete
+compose_release "${release_dir}" "${release_id}" run --rm server python manage.py migrate --noinput
 
-podman compose "${compose_files[@]}" run --rm server python manage.py migrate --noinput
-previous_target=''
-if [[ -L "${remote_dir}/current" ]]; then
-  candidate_target="$(readlink -f "${remote_dir}/current" 2>/dev/null || true)"
-  if [[ "${candidate_target}" == "${remote_dir}/releases/"* \
-    && -d "${candidate_target}" \
-    && -f "${candidate_target}/deploy/compose.yaml" \
-    && -f "${candidate_target}/deploy/compose.production.yaml" ]]; then
-    previous_target="${candidate_target}"
-    ln -sfn "${previous_target}" "${remote_dir}/previous"
-  fi
+if [[ -n "${previous_target}" ]]; then
+  ln -sfn "${previous_target}" "${remote_dir}/previous"
 fi
 ln -sfn "${release_dir}" "${remote_dir}/current"
-podman compose "${compose_files[@]}" up -d server
-
-healthy=false
-for _ in {1..60}; do
-  if podman compose "${compose_files[@]}" exec -T server \
-    python -c "import os, urllib.request; request = urllib.request.Request('http://127.0.0.1:8000/health/ready', headers={'Host': os.environ['PENNI_MORE_DOMAIN'], 'X-Forwarded-Proto': 'https'}); urllib.request.urlopen(request, timeout=2)"; then
-    healthy=true
-    break
-  fi
-  sleep 1
-done
-if [[ "${healthy}" == true ]]; then
-  if podman compose "${compose_files[@]}" --profile operations run --rm --entrypoint sh certbot \
-    -c "test -f '/etc/letsencrypt/live/${PENNI_MORE_DOMAIN}/fullchain.pem'"; then
-    podman compose "${compose_files[@]}" up -d nginx
-  else
-    "${release_dir}/deploy/scripts/bootstrap-certificates.sh"
-  fi
-  public_healthy=false
-  for _ in {1..60}; do
-    if [[ "$(curl --fail --silent --show-error "https://${PENNI_MORE_DOMAIN}/health/live" 2>/dev/null || true)" == '{"status": "ok"}' ]]; then
-      public_healthy=true
-      break
-    fi
-    sleep 1
-  done
-  [[ "${public_healthy}" == true ]] || healthy=false
+compose_release "${release_dir}" "${release_id}" up -d server
+wait_for_server "${release_dir}" "${release_id}"
+if certificate_exists; then
+  compose_release "${release_dir}" "${release_id}" up -d nginx
+else
+  "${release_dir}/deploy/scripts/bootstrap-certificates.sh"
 fi
-if [[ "${healthy}" != true ]]; then
-  if [[ -n "${previous_target}" ]]; then
-    ln -sfn "${previous_target}" "${remote_dir}/current"
-    previous_id="$(basename "${previous_target}")"
-    PENNI_MORE_RELEASE_ID="${previous_id}" podman compose -p penni-more \
-      -f "${previous_target}/deploy/compose.yaml" \
-      -f "${previous_target}/deploy/compose.production.yaml" up -d server nginx
-  fi
-  printf 'New release failed readiness; previous code was restored. Database was not restored.\n' >&2
-  exit 1
-fi
+wait_for_public_health
 
+recovery_armed=false
+trap - EXIT
 find "${remote_dir}/releases" -mindepth 1 -maxdepth 1 -type d \
   ! -path "$(readlink -f "${remote_dir}/current")" \
   ! -path "$(readlink -f "${remote_dir}/previous" 2>/dev/null || printf '/nonexistent')" -exec rm -rf -- {} +

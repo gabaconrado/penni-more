@@ -67,8 +67,34 @@ ENV
   cat >"${fixture_root}/bin/podman" <<'SCRIPT'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${CALL_LOG}"
-if [[ "${FAIL_READY:-false}" == true && "$*" == *"/health/ready"* ]]; then
+for argument in "$@"; do
+  if [[ "${argument}" == --volumes || "${argument}" == -v ]]; then
+    : >"${FORBIDDEN_VOLUME_LOG}"
+    exit 90
+  fi
+done
+if [[ -n "${RECONCILIATION_STATE:-}" && "$*" == *" down" ]]; then
+  rm -f "${RECONCILIATION_STATE}"
+fi
+if [[ -n "${RECONCILIATION_STATE:-}" \
+  && -e "${RECONCILIATION_STATE}" \
+  && "$*" == *"up -d database"* ]]; then
+  exit 88
+fi
+if [[ "${FAIL_NEW_DATABASE:-false}" == true \
+  && "$*" == *"/releases/release-1/"* \
+  && "$*" == *"up -d database"* ]]; then
+  exit 41
+fi
+if [[ "${FAIL_READY:-false}" == true \
+  && "$*" == *"/releases/release-1/"* \
+  && "$*" == *"/health/ready"* ]]; then
   exit 1
+fi
+if [[ "${FAIL_RECOVERY:-false}" == true \
+  && "$*" == *"/releases/release-0/"* \
+  && "$*" == *"up -d server"* ]]; then
+  exit 42
 fi
 if [[ "${FAIL_PRUNE:-false}" == true && "$*" == "system prune --force" ]]; then
   exit 1
@@ -92,11 +118,17 @@ SCRIPT
 printf 'find %s\n' "$*" >>"${CALL_LOG}"
 exec /usr/bin/find "$@"
 SCRIPT
+  cat >"${fixture_root}/bin/ln" <<'SCRIPT'
+#!/usr/bin/env bash
+printf 'ln %s\n' "$*" >>"${CALL_LOG}"
+exec /bin/ln "$@"
+SCRIPT
   chmod +x \
     "${fixture_root}/bin/podman" \
     "${fixture_root}/bin/curl" \
     "${fixture_root}/bin/sleep" \
-    "${fixture_root}/bin/find"
+    "${fixture_root}/bin/find" \
+    "${fixture_root}/bin/ln"
 }
 
 run_remote_fixture() {
@@ -104,9 +136,21 @@ run_remote_fixture() {
     PATH="${fixture_root}/bin:${PATH}" \
     CALL_LOG="${fixture_calls}" \
     FAIL_READY="${FAIL_READY:-false}" \
+    FAIL_NEW_DATABASE="${FAIL_NEW_DATABASE:-false}" \
+    FAIL_RECOVERY="${FAIL_RECOVERY:-false}" \
     FAIL_PRUNE="${FAIL_PRUNE:-false}" \
     PUBLIC_HEALTHY="${PUBLIC_HEALTHY:-false}" \
+    RECONCILIATION_STATE="${RECONCILIATION_STATE:-}" \
+    FORBIDDEN_VOLUME_LOG="${fixture_root}/forbidden-volume-option" \
     "${script}" "${fixture_remote}" release-1
+}
+
+add_previous_release() {
+  mkdir -p "${fixture_remote}/releases/release-0/deploy"
+  touch \
+    "${fixture_remote}/releases/release-0/deploy/compose.yaml" \
+    "${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
+  ln -s "${fixture_remote}/releases/release-0" "${fixture_remote}/current"
 }
 
 create_certificate_fixture() {
@@ -237,14 +281,106 @@ SCRIPT
 }
 
 @test "production deployment check precedes every database mutation" {
-  grep -Fq 'run --rm --no-deps server' "${script}"
-  deploy_check_line="$(grep -n 'check --deploy --fail-level WARNING' "${script}" | cut -d: -f1)"
-  database_start_line="$(grep -n 'up -d database' "${script}" | cut -d: -f1)"
-  backup_line="$(grep -n 'pg_dump' "${script}" | cut -d: -f1)"
-  migration_line="$(grep -n 'manage.py migrate' "${script}" | cut -d: -f1)"
-  [ "${deploy_check_line}" -lt "${database_start_line}" ]
-  [ "${deploy_check_line}" -lt "${backup_line}" ]
-  [ "${deploy_check_line}" -lt "${migration_line}" ]
+  create_remote_fixture
+  PUBLIC_HEALTHY=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 0 ]
+  deploy_check_line="$(grep -n 'check --deploy --fail-level WARNING' "${fixture_calls}" | cut -d: -f1)"
+  down_line="$(grep -n ' down$' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
+  database_start_line="$(grep -n 'up -d database$' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
+  backup_line="$(grep -n 'pg_dump' "${fixture_calls}" | cut -d: -f1)"
+  migration_line="$(grep -n 'manage.py migrate' "${fixture_calls}" | cut -d: -f1)"
+  [ "${deploy_check_line}" -lt "${down_line}" ]
+  [ "${down_line}" -lt "${database_start_line}" ]
+  [ "${database_start_line}" -lt "${backup_line}" ]
+  [ "${backup_line}" -lt "${migration_line}" ]
+}
+
+@test "full-project down reconciles dependent containers without removing volumes" {
+  create_remote_fixture
+  RECONCILIATION_STATE="${fixture_root}/dependent-containers"
+  : >"${RECONCILIATION_STATE}"
+
+  run env \
+    PATH="${fixture_root}/bin:${PATH}" \
+    CALL_LOG="${fixture_calls}" \
+    RECONCILIATION_STATE="${RECONCILIATION_STATE}" \
+    FORBIDDEN_VOLUME_LOG="${fixture_root}/forbidden-volume-option" \
+    podman compose -p penni-more up -d database
+
+  [ "${status}" -eq 88 ]
+  PUBLIC_HEALTHY=true
+  run_remote_fixture
+  [ "${status}" -eq 0 ]
+  [ ! -e "${RECONCILIATION_STATE}" ]
+  [ ! -e "${fixture_root}/forbidden-volume-option" ]
+  [ "$(grep -c ' down$' "${fixture_calls}")" -eq 1 ]
+  ! grep -Eq ' down .+|volume rm' "${fixture_calls}"
+}
+
+@test "normal activation follows the required database server and ingress order" {
+  create_remote_fixture
+  PUBLIC_HEALTHY=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 0 ]
+  down_line="$(grep -n ' down$' "${fixture_calls}" | cut -d: -f1)"
+  database_line="$(grep -n 'up -d database$' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
+  database_health_line="$(grep -n 'pg_isready' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
+  backup_line="$(grep -n 'pg_dump' "${fixture_calls}" | cut -d: -f1)"
+  migration_line="$(grep -n 'manage.py migrate' "${fixture_calls}" | cut -d: -f1)"
+  activation_line="$(grep -nF "ln -sfn ${fixture_remote}/releases/release-1 ${fixture_remote}/current" "${fixture_calls}" | cut -d: -f1)"
+  server_line="$(grep -n 'up -d server$' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
+  server_health_line="$(grep -n '/health/ready' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
+  nginx_line="$(grep -n 'up -d nginx$' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
+  public_health_line="$(grep -n '^curl .*health/live$' "${fixture_calls}" | cut -d: -f1)"
+  [ "${down_line}" -lt "${database_line}" ]
+  [ "${database_line}" -lt "${database_health_line}" ]
+  [ "${database_health_line}" -lt "${backup_line}" ]
+  [ "${backup_line}" -lt "${migration_line}" ]
+  [ "${migration_line}" -lt "${activation_line}" ]
+  [ "${activation_line}" -lt "${server_line}" ]
+  [ "${server_line}" -lt "${server_health_line}" ]
+  [ "${server_health_line}" -lt "${nginx_line}" ]
+  [ "${nginx_line}" -lt "${public_health_line}" ]
+  [ "$(grep -c 'manage.py migrate' "${fixture_calls}")" -eq 1 ]
+}
+
+@test "post-shutdown database failure restarts prior code and preserves original status" {
+  create_remote_fixture
+  add_previous_release
+  FAIL_NEW_DATABASE=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 41 ]
+  prior_prefix="-f ${fixture_remote}/releases/release-0/deploy/compose.yaml -f ${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
+  database_line="$(grep -nF -- "${prior_prefix} up -d database" "${fixture_calls}" | cut -d: -f1)"
+  server_line="$(grep -nF -- "${prior_prefix} up -d server" "${fixture_calls}" | cut -d: -f1)"
+  nginx_line="$(grep -nF -- "${prior_prefix} up -d nginx" "${fixture_calls}" | cut -d: -f1)"
+  [ "${database_line}" -lt "${server_line}" ]
+  [ "${server_line}" -lt "${nginx_line}" ]
+  ! grep -q 'manage.py migrate' "${fixture_calls}"
+  [[ "${output}" == *"Database migrations and data were not rolled back."* ]]
+}
+
+@test "recovery failure preserves original status and reports both limitations" {
+  create_remote_fixture
+  add_previous_release
+  FAIL_NEW_DATABASE=true
+  FAIL_RECOVERY=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 41 ]
+  [[ "${output}" == *"Database migrations and data were not rolled back."* ]]
+  [[ "${output}" == *"Previous-release recovery could not be verified."* ]]
+  [ "$(grep -c ' down$' "${fixture_calls}")" -eq 2 ]
+  ! grep -Eq ' down .+|volume rm|pg_restore|restore-backup' "${fixture_calls}"
+  [ ! -e "${fixture_root}/forbidden-volume-option" ]
 }
 
 @test "failed production deployment check prevents database startup and mutation" {
@@ -272,7 +408,7 @@ SCRIPT
 
   [ "${status}" -ne 0 ]
   grep -q 'check --deploy --fail-level WARNING' "${CALL_LOG}"
-  ! grep -q 'up -d database\|pg_dump\|manage.py migrate' "${CALL_LOG}"
+  ! grep -q ' down$\|up -d database\|pg_dump\|manage.py migrate' "${CALL_LOG}"
   rm -rf "${test_root}"
 }
 
@@ -338,7 +474,7 @@ SCRIPT
 }
 
 @test "health rollback never restores the database" {
-  grep -Fq 'previous code was restored' "${script}"
+  grep -Fq 'Database migrations and data were not rolled back.' "${script}"
   ! grep -Eq 'pg_restore|restore-backup' "${script}"
 }
 
@@ -396,8 +532,10 @@ SCRIPT
   [ "${status}" -ne 0 ]
   [ ! -e "${fixture_remote}/previous" ]
   [ ! -L "${fixture_remote}/previous" ]
-  [ "$(readlink -f "${fixture_remote}/current")" = "${fixture_remote}/releases/release-1" ]
+  [ ! -e "${fixture_remote}/current" ]
+  [ ! -L "${fixture_remote}/current" ]
   ! grep -Fq "${fixture_remote}/current/deploy/compose.yaml" "${fixture_calls}"
+  [[ "${output}" == *"No previous release code is available to restart."* ]]
 }
 
 @test "failed deployment restores a valid prior release" {
@@ -414,9 +552,14 @@ SCRIPT
   [ "${status}" -ne 0 ]
   [ "$(readlink -f "${fixture_remote}/previous")" = "${fixture_remote}/releases/release-0" ]
   [ "$(readlink -f "${fixture_remote}/current")" = "${fixture_remote}/releases/release-0" ]
-  grep -Fq -- \
-    "-f ${fixture_remote}/releases/release-0/deploy/compose.yaml -f ${fixture_remote}/releases/release-0/deploy/compose.production.yaml up -d server nginx" \
-    "${fixture_calls}"
+  prior_prefix="-f ${fixture_remote}/releases/release-0/deploy/compose.yaml -f ${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
+  database_line="$(grep -nF -- "${prior_prefix} up -d database" "${fixture_calls}" | cut -d: -f1)"
+  server_line="$(grep -nF -- "${prior_prefix} up -d server" "${fixture_calls}" | cut -d: -f1)"
+  nginx_line="$(grep -nF -- "${prior_prefix} up -d nginx" "${fixture_calls}" | cut -d: -f1)"
+  [ "${database_line}" -lt "${server_line}" ]
+  [ "${server_line}" -lt "${nginx_line}" ]
+  [ "$(grep -c 'manage.py migrate' "${fixture_calls}")" -eq 1 ]
+  ! grep -Eq 'pg_restore|restore-backup' "${fixture_calls}"
 }
 
 @test "healthy deployment prunes safely after public health and retention" {
