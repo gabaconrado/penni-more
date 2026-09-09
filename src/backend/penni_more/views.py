@@ -1,5 +1,6 @@
 """Minimal server-rendered and operational endpoints."""
 
+from django.contrib.auth.decorators import login_not_required
 from django.db import DatabaseError, connections
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -12,12 +13,14 @@ def home(request: HttpRequest) -> HttpResponse:
 
 
 @require_http_methods(["GET"])
+@login_not_required
 def live(request: HttpRequest) -> JsonResponse:
     """Report process liveness without querying any dependency."""
     return JsonResponse({"status": "ok"})
 
 
 @require_http_methods(["GET"])
+@login_not_required
 def ready(request: HttpRequest) -> JsonResponse:
     """Report database readiness without exposing diagnostic details."""
     try:

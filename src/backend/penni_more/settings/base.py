@@ -13,14 +13,23 @@ DEBUG = False
 ALLOWED_HOSTS: list[str] = []
 
 INSTALLED_APPS = [
+    "django.contrib.admin",
+    "django.contrib.auth",
     "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
     "django.contrib.staticfiles",
+    "penni_more.users",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.contrib.auth.middleware.LoginRequiredMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
@@ -34,6 +43,8 @@ TEMPLATES: list[dict[str, Any]] = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     }
@@ -64,3 +75,15 @@ WEB_STATIC_ROOT = WEB_ROOT / "static"
 STATICFILES_DIRS = [WEB_STATIC_ROOT] if WEB_STATIC_ROOT.is_dir() else []
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+AUTH_USER_MODEL = "users.User"
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "login"

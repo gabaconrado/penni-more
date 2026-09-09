@@ -16,7 +16,19 @@
             data-testid="site-header">
       <nav class="navbar mx-auto max-w-6xl px-4 sm:px-6"
            aria-label="Primary navigation">
-        <a class="btn btn-ghost px-0 text-xl font-semibold" href="/">Penni More</a>
+        <a class="btn btn-ghost shrink-0 px-0 text-xl font-semibold" href="/">Penni More</a>
+        {% if user.is_authenticated %}
+          <div class="ml-auto flex min-w-0 items-center gap-3 sm:gap-4">
+            <p class="min-w-0 truncate text-sm text-base-content/70">
+              Signed in as <strong class="font-semibold text-base-content">{{ user.email }}</strong>
+            </p>
+            <form class="shrink-0" method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button class="btn btn-outline btn-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+                      type="submit">Sign out</button>
+            </form>
+          </div>
+        {% endif %}
       </nav>
     </header>
     <main id="main-content"

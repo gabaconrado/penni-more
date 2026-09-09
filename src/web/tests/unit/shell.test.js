@@ -22,4 +22,15 @@ describe("the server-rendered shell", () => {
     expect(template).toContain("Account and transaction\n          features will be added");
     expect(template).not.toContain("<form");
   });
+
+  it("shows identity and a CSRF-protected POST logout only to authenticated users", async () => {
+    const template = await readFile(templateUrl("base.html"), "utf8");
+
+    expect(template).toContain("{% if user.is_authenticated %}");
+    expect(template).toContain("{{ user.email }}");
+    expect(template).toContain('method="post"');
+    expect(template).toContain("{% url 'logout' %}");
+    expect(template).toContain("{% csrf_token %}");
+    expect(template).toContain('type="submit">Sign out</button>');
+  });
 });
