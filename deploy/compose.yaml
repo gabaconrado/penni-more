@@ -15,10 +15,6 @@ services:
       - database-data:/var/lib/postgresql/data
 
   server:
-    build:
-      context: ..
-      dockerfile: deploy/Containerfile
-      target: application
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-penni_more}
       POSTGRES_USER: ${POSTGRES_USER:-penni_more}

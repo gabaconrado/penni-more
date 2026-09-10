@@ -63,10 +63,13 @@ POSTGRES_DB=penni_more
 ENV
   cat >"${fixture_remote}/releases/release-1/release.env" <<'ENV'
 PENNI_MORE_RELEASE_ID=release-1
+PENNI_MORE_IMAGE_VERSION=2.0.0
 ENV
   cat >"${fixture_root}/bin/podman" <<'SCRIPT'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${CALL_LOG}"
+printf 'release=%s image=%s %s\n' \
+  "${PENNI_MORE_RELEASE_ID:-unset}" "${PENNI_MORE_IMAGE_VERSION:-unset}" "$*" >>"${VERSION_LOG}"
 for argument in "$@"; do
   if [[ "${argument}" == --volumes || "${argument}" == -v ]]; then
     : >"${FORBIDDEN_VOLUME_LOG}"
@@ -85,6 +88,12 @@ if [[ "${FAIL_NEW_DATABASE:-false}" == true \
   && "$*" == *"/releases/release-1/"* \
   && "$*" == *"up -d database"* ]]; then
   exit 41
+fi
+if [[ "${FAIL_SERVER_PULL:-false}" == true && "$*" == *"pull server"* ]]; then
+  exit 43
+fi
+if [[ "${FAIL_NGINX_PULL:-false}" == true && "$*" == *"pull nginx"* ]]; then
+  exit 44
 fi
 if [[ "${FAIL_READY:-false}" == true \
   && "$*" == *"/releases/release-1/"* \
@@ -135,10 +144,13 @@ run_remote_fixture() {
   run env \
     PATH="${fixture_root}/bin:${PATH}" \
     CALL_LOG="${fixture_calls}" \
+    VERSION_LOG="${fixture_root}/versions" \
     FAIL_READY="${FAIL_READY:-false}" \
     FAIL_NEW_DATABASE="${FAIL_NEW_DATABASE:-false}" \
     FAIL_RECOVERY="${FAIL_RECOVERY:-false}" \
     FAIL_PRUNE="${FAIL_PRUNE:-false}" \
+    FAIL_SERVER_PULL="${FAIL_SERVER_PULL:-false}" \
+    FAIL_NGINX_PULL="${FAIL_NGINX_PULL:-false}" \
     PUBLIC_HEALTHY="${PUBLIC_HEALTHY:-false}" \
     RECONCILIATION_STATE="${RECONCILIATION_STATE:-}" \
     FORBIDDEN_VOLUME_LOG="${fixture_root}/forbidden-volume-option" \
@@ -150,6 +162,21 @@ add_previous_release() {
   touch \
     "${fixture_remote}/releases/release-0/deploy/compose.yaml" \
     "${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
+  cat >"${fixture_remote}/releases/release-0/release.env" <<'ENV'
+PENNI_MORE_RELEASE_ID=release-0
+PENNI_MORE_IMAGE_VERSION=1.9.0
+ENV
+  ln -s "${fixture_remote}/releases/release-0" "${fixture_remote}/current"
+}
+
+add_legacy_previous_release() {
+  mkdir -p "${fixture_remote}/releases/release-0/deploy"
+  touch \
+    "${fixture_remote}/releases/release-0/deploy/compose.yaml" \
+    "${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
+  cat >"${fixture_remote}/releases/release-0/release.env" <<'ENV'
+PENNI_MORE_RELEASE_ID=release-0
+ENV
   ln -s "${fixture_remote}/releases/release-0" "${fixture_remote}/current"
 }
 
@@ -287,15 +314,86 @@ SCRIPT
   run_remote_fixture
 
   [ "${status}" -eq 0 ]
+  server_pull_line="$(grep -n 'pull server$' "${fixture_calls}" | cut -d: -f1)"
+  nginx_pull_line="$(grep -n 'pull nginx$' "${fixture_calls}" | cut -d: -f1)"
   deploy_check_line="$(grep -n 'check --deploy --fail-level WARNING' "${fixture_calls}" | cut -d: -f1)"
+  shared_link_line="$(grep -nF "ln -sfn ${fixture_remote}/shared" "${fixture_calls}" | cut -d: -f1)"
   down_line="$(grep -n ' down$' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
   database_start_line="$(grep -n 'up -d database$' "${fixture_calls}" | head -n 1 | cut -d: -f1)"
   backup_line="$(grep -n 'pg_dump' "${fixture_calls}" | cut -d: -f1)"
   migration_line="$(grep -n 'manage.py migrate' "${fixture_calls}" | cut -d: -f1)"
+  [ "${server_pull_line}" -lt "${nginx_pull_line}" ]
+  [ "${nginx_pull_line}" -lt "${deploy_check_line}" ]
+  [ "${deploy_check_line}" -lt "${shared_link_line}" ]
   [ "${deploy_check_line}" -lt "${down_line}" ]
   [ "${down_line}" -lt "${database_start_line}" ]
   [ "${database_start_line}" -lt "${backup_line}" ]
   [ "${backup_line}" -lt "${migration_line}" ]
+}
+
+@test "either image pull failure leaves the running project and database untouched" {
+  create_remote_fixture
+  FAIL_SERVER_PULL=true
+  run_remote_fixture
+  [ "${status}" -eq 43 ]
+  ! grep -q 'pull nginx\|check --deploy\| down$\|up -d database\|pg_dump\|manage.py migrate' \
+    "${fixture_calls}"
+  ! grep -q '^ln ' "${fixture_calls}"
+
+  rm -rf "${fixture_root}"
+  create_remote_fixture
+  FAIL_SERVER_PULL=false
+  FAIL_NGINX_PULL=true
+  run_remote_fixture
+  [ "${status}" -eq 44 ]
+  grep -q 'pull server$' "${fixture_calls}"
+  ! grep -q 'check --deploy\| down$\|up -d database\|pg_dump\|manage.py migrate' \
+    "${fixture_calls}"
+  ! grep -q '^ln ' "${fixture_calls}"
+}
+
+@test "remote deployment uses pre-built images and never runs a Compose build" {
+  create_remote_fixture
+  PUBLIC_HEALTHY=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 0 ]
+  grep -q 'pull server$' "${fixture_calls}"
+  grep -q 'pull nginx$' "${fixture_calls}"
+  ! grep -Eq '(^| )build( |$)' "${fixture_calls}"
+}
+
+@test "systemd start requires and propagates the release image version" {
+  fixture_root="$(mktemp -d)"
+  fixture_calls="${fixture_root}/calls"
+  mkdir -p "${fixture_root}/deploy/scripts" "${fixture_root}/shared" "${fixture_root}/bin"
+  cp "${repository_root}/deploy/scripts/start-production.sh" \
+    "${fixture_root}/deploy/scripts/start-production.sh"
+  touch "${fixture_root}/deploy/compose.yaml" "${fixture_root}/deploy/compose.production.yaml"
+  printf 'PENNI_MORE_ENVIRONMENT=production\n' >"${fixture_root}/shared/.env"
+  cat >"${fixture_root}/release.env" <<'ENV'
+PENNI_MORE_RELEASE_ID=release-1
+PENNI_MORE_IMAGE_VERSION=2.0.0
+ENV
+  cat >"${fixture_root}/bin/podman" <<'SCRIPT'
+#!/usr/bin/env bash
+printf 'release=%s image=%s %s\n' \
+  "${PENNI_MORE_RELEASE_ID:-unset}" "${PENNI_MORE_IMAGE_VERSION:-unset}" "$*" >>"${CALL_LOG}"
+SCRIPT
+  chmod +x "${fixture_root}/bin/podman"
+
+  run env PATH="${fixture_root}/bin:${PATH}" CALL_LOG="${fixture_calls}" \
+    "${fixture_root}/deploy/scripts/start-production.sh"
+  [ "${status}" -eq 0 ]
+  grep -Fq 'release=release-1 image=2.0.0 compose -p penni-more' "${fixture_calls}"
+
+  sed -i '/PENNI_MORE_IMAGE_VERSION/d' "${fixture_root}/release.env"
+  : >"${fixture_calls}"
+  run env PATH="${fixture_root}/bin:${PATH}" CALL_LOG="${fixture_calls}" \
+    "${fixture_root}/deploy/scripts/start-production.sh"
+  [ "${status}" -ne 0 ]
+  [ ! -s "${fixture_calls}" ]
 }
 
 @test "full-project down reconciles dependent containers without removing volumes" {
@@ -363,8 +461,64 @@ SCRIPT
   nginx_line="$(grep -nF -- "${prior_prefix} up -d nginx" "${fixture_calls}" | cut -d: -f1)"
   [ "${database_line}" -lt "${server_line}" ]
   [ "${server_line}" -lt "${nginx_line}" ]
+  grep -Fq "release=release-0 image=1.9.0 compose -p penni-more ${prior_prefix} up -d database" \
+    "${fixture_root}/versions"
+  grep -Fq 'release=release-1 image=2.0.0 ' "${fixture_root}/versions"
   ! grep -q 'manage.py migrate' "${fixture_calls}"
   [[ "${output}" == *"Database migrations and data were not rolled back."* ]]
+}
+
+@test "first pre-built deployment failure restarts a legacy prior release without version leakage" {
+  create_remote_fixture
+  add_legacy_previous_release
+  FAIL_NEW_DATABASE=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 41 ]
+  prior_prefix="-f ${fixture_remote}/releases/release-0/deploy/compose.yaml -f ${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
+  database_line="$(grep -nF -- "${prior_prefix} up -d database" "${fixture_calls}" | cut -d: -f1)"
+  server_line="$(grep -nF -- "${prior_prefix} up -d server" "${fixture_calls}" | cut -d: -f1)"
+  nginx_line="$(grep -nF -- "${prior_prefix} up -d nginx" "${fixture_calls}" | cut -d: -f1)"
+  [ "${database_line}" -lt "${server_line}" ]
+  [ "${server_line}" -lt "${nginx_line}" ]
+  grep -Fq "release=release-0 image=unset compose -p penni-more ${prior_prefix} up -d database" \
+    "${fixture_root}/versions"
+  ! grep -Eq 'release=release-0 image=2\.0\.0' "${fixture_root}/versions"
+  [[ "${output}" == *"Previous release code was restarted."* ]]
+}
+
+@test "a present invalid prior image version blocks recovery Compose evaluation" {
+  create_remote_fixture
+  add_previous_release
+  sed -i 's/PENNI_MORE_IMAGE_VERSION=.*/PENNI_MORE_IMAGE_VERSION=invalid/' \
+    "${fixture_remote}/releases/release-0/release.env"
+  FAIL_NEW_DATABASE=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 41 ]
+  [[ "${output}" == *"has an invalid image version"* ]]
+  [[ "${output}" == *"Previous-release recovery could not be verified."* ]]
+  ! grep -Eq "${fixture_remote}/releases/release-0/.+up -d (database|server|nginx)" \
+    "${fixture_calls}"
+}
+
+@test "a present empty prior image version is not treated as legacy metadata" {
+  create_remote_fixture
+  add_previous_release
+  sed -i 's/PENNI_MORE_IMAGE_VERSION=.*/PENNI_MORE_IMAGE_VERSION=/' \
+    "${fixture_remote}/releases/release-0/release.env"
+  FAIL_NEW_DATABASE=true
+
+  run_remote_fixture
+
+  [ "${status}" -eq 41 ]
+  [[ "${output}" == *"has an invalid image version"* ]]
+  [[ "${output}" == *"Previous-release recovery could not be verified."* ]]
+  ! grep -Eq "${fixture_remote}/releases/release-0/.+up -d (database|server|nginx)" \
+    "${fixture_calls}"
+  ! grep -Eq '^release=release-0 ' "${fixture_root}/versions"
 }
 
 @test "recovery failure preserves original status and reports both limitations" {
@@ -395,6 +549,7 @@ POSTGRES_DB=penni_more
 ENV
   cat >"${remote}/releases/release-1/release.env" <<'ENV'
 PENNI_MORE_RELEASE_ID=release-1
+PENNI_MORE_IMAGE_VERSION=2.0.0
 ENV
   cat >"${test_root}/bin/podman" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -458,6 +613,7 @@ POSTGRES_DB=penni_more
 ENV
   cat >"${remote}/releases/release-1/release.env" <<'ENV'
 PENNI_MORE_RELEASE_ID=release-1
+PENNI_MORE_IMAGE_VERSION=2.0.0
 ENV
   cat >"${test_root}/bin/podman" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -540,11 +696,7 @@ SCRIPT
 
 @test "failed deployment restores a valid prior release" {
   create_remote_fixture
-  mkdir -p "${fixture_remote}/releases/release-0/deploy"
-  touch \
-    "${fixture_remote}/releases/release-0/deploy/compose.yaml" \
-    "${fixture_remote}/releases/release-0/deploy/compose.production.yaml"
-  ln -s "${fixture_remote}/releases/release-0" "${fixture_remote}/current"
+  add_previous_release
   FAIL_READY=true
 
   run_remote_fixture

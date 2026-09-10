@@ -124,7 +124,8 @@ run_check() {
 }
 
 usage() {
-  printf '%s\n' 'Usage: ./penni-more.sh {setup|lint|test|check [scope]|up|down|logs|shell|migrate|reset --confirm-local-data-loss|deploy [options]}'
+  printf '%s\n' \
+    'Usage: ./penni-more.sh {setup|lint|test|check [scope]|up|down|logs|shell|migrate|reset --confirm-local-data-loss|publish VERSION|deploy VERSION [--dry-run]}'
 }
 
 main() {
@@ -161,6 +162,7 @@ main() {
       compose down
       podman volume rm "${database_volume}"
       ;;
+    publish) "${script_dir}/deploy/scripts/publish.sh" "$@" ;;
     deploy) "${script_dir}/deploy/scripts/deploy.sh" "$@" ;;
     *) usage >&2; return 2 ;;
   esac

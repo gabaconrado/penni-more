@@ -4,6 +4,10 @@ services:
       - "127.0.0.1:${PENNI_MORE_POSTGRES_PORT:-5432}:5432"
 
   server:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+      target: application
     command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     environment:
       DJANGO_SETTINGS_MODULE: penni_more.settings.local

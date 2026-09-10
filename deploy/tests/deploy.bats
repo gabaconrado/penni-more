@@ -12,6 +12,7 @@ setup() {
   git -C "${repository}" config user.email test@example.invalid
   git -C "${repository}" add deploy/scripts/deploy.sh deploy/scripts/preflight.sh
   git -C "${repository}" commit -qm initial
+  git -C "${repository}" tag -a v1.2.3 -m 'Release 1.2.3'
   cat >"${test_root}/bin/ssh" <<'SCRIPT'
 #!/usr/bin/env bash
 printf 'ssh %s\n' "$*" >>"${CALL_LOG}"
@@ -38,33 +39,37 @@ teardown() {
 
 @test "missing deployment variables fail before transport" {
   unset DEPLOY_SSH_TARGET
-  run "${repository}/deploy/scripts/deploy.sh" --dry-run
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
   [ "${status}" -ne 0 ]
   [ ! -e "${CALL_LOG}" ]
 }
 
 @test "unsafe remote directory fails before transport" {
-  DEPLOY_REMOTE_DIR=/ run "${repository}/deploy/scripts/deploy.sh" --dry-run
+  DEPLOY_REMOTE_DIR=/ run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
   [ "${status}" -eq 2 ]
   [ ! -e "${CALL_LOG}" ]
 }
 
 @test "dirty tree fails before transport" {
   printf 'dirty\n' >>"${repository}/deploy/scripts/deploy.sh"
-  run "${repository}/deploy/scripts/deploy.sh" --dry-run
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
   [ "${status}" -eq 2 ]
   [ ! -e "${CALL_LOG}" ]
 }
 
-@test "wrong branch requires emergency override" {
+@test "wrong branch and the former escape hatch fail" {
   git -C "${repository}" switch -qc emergency
-  run "${repository}/deploy/scripts/deploy.sh" --dry-run
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+  [ "${status}" -eq 2 ]
+  [ ! -e "${CALL_LOG}" ]
+
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --allow-non-primary-branch
   [ "${status}" -eq 2 ]
   [ ! -e "${CALL_LOG}" ]
 }
 
 @test "dry run performs read-only preflight without rsync" {
-  run "${repository}/deploy/scripts/deploy.sh" --dry-run
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"Dry run complete"* ]]
   grep -q '^ssh ' "${CALL_LOG}"
@@ -72,12 +77,48 @@ teardown() {
   ! grep -q 'mkdir\|remote-release\|cat >' "${CALL_LOG}"
 }
 
-@test "emergency branch override is recorded" {
-  git -C "${repository}" switch -qc emergency
-  mkdir -p "${repository}/deploy" "${repository}/src/backend" "${repository}/src/web"
-  run "${repository}/deploy/scripts/deploy.sh" --allow-non-primary-branch
+@test "real deploy records image version and transfers only deployment files" {
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3
   [ "${status}" -eq 0 ]
-  [[ "${output}" == *"Emergency branch override: enabled"* ]]
-  grep -Fxq 'PENNI_MORE_GIT_BRANCH=emergency' "${METADATA_LOG}"
-  grep -Fxq 'PENNI_MORE_EMERGENCY_BRANCH_OVERRIDE=true' "${METADATA_LOG}"
+  grep -Fxq 'PENNI_MORE_IMAGE_VERSION=1.2.3' "${METADATA_LOG}"
+  grep -Fxq 'PENNI_MORE_GIT_BRANCH=main' "${METADATA_LOG}"
+  grep -Fq 'chmod 0600' "${CALL_LOG}"
+  [ "$(grep -c '^rsync ' "${CALL_LOG}")" -eq 1 ]
+  grep -Fq "${repository}/deploy/" "${CALL_LOG}"
+  ! grep -Eq '/src/(backend|web)' "${CALL_LOG}"
+}
+
+@test "deploy accepts only stable versions" {
+  for version in '' v1.2.3 1.2 01.2.3 1.02.3 1.2.03 1.2.3-rc.1 1.2.3+build; do
+    run "${repository}/deploy/scripts/deploy.sh" "${version}" --dry-run
+    [ "${status}" -eq 2 ]
+  done
+  [ ! -e "${CALL_LOG}" ]
+}
+
+@test "deploy requires an annotated tag at HEAD" {
+  git -C "${repository}" tag -d v1.2.3 >/dev/null
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+  [ "${status}" -eq 2 ]
+  [[ "${output}" == *"must exist and be annotated"* ]]
+
+  git -C "${repository}" tag v1.2.3
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+  [ "${status}" -eq 2 ]
+  [[ "${output}" == *"must exist and be annotated"* ]]
+}
+
+@test "deploy rejects an annotated tag that does not reference HEAD" {
+  git -C "${repository}" tag -d v1.2.3 >/dev/null
+  old_commit="$(git -C "${repository}" rev-parse HEAD)"
+  printf 'next\n' >"${repository}/tracked"
+  git -C "${repository}" add tracked
+  git -C "${repository}" commit -qm next
+  git -C "${repository}" tag -a v1.2.3 -m release "${old_commit}"
+
+  run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+
+  [ "${status}" -eq 2 ]
+  [[ "${output}" == *"must reference HEAD"* ]]
+  [ ! -e "${CALL_LOG}" ]
 }

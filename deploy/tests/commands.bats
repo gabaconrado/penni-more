@@ -16,6 +16,23 @@ setup() {
   [[ "${output}" == *"Unknown check scope"* ]]
 }
 
+@test "publish command routes its version to the publication script" {
+  test_root="$(mktemp -d)"
+  mkdir -p "${test_root}/deploy/scripts"
+  cp "${repository_root}/penni-more.sh" "${test_root}/penni-more.sh"
+  cat >"${test_root}/deploy/scripts/publish.sh" <<'SCRIPT'
+#!/usr/bin/env bash
+printf '%s\n' "$*"
+SCRIPT
+  chmod +x "${test_root}/deploy/scripts/publish.sh"
+
+  run "${test_root}/penni-more.sh" publish 1.2.3
+
+  [ "${status}" -eq 0 ]
+  [ "${output}" = "1.2.3" ]
+  rm -rf "${test_root}"
+}
+
 @test "local reset requires exact confirmation" {
   run "${repository_root}/penni-more.sh" reset
   [ "${status}" -eq 2 ]

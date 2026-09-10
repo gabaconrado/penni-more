@@ -9,11 +9,7 @@ services:
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
 
   server:
-    image: localhost/penni-more-application:${PENNI_MORE_RELEASE_ID}
-    build:
-      context: ..
-      dockerfile: deploy/Containerfile
-      target: application
+    image: docker.io/gabaconrado/penni-more:${PENNI_MORE_IMAGE_VERSION:?PENNI_MORE_IMAGE_VERSION is required}
     command:
       - gunicorn
       - --bind=0.0.0.0:8000
@@ -34,11 +30,7 @@ services:
     cap_drop: [ALL]
 
   nginx:
-    image: localhost/penni-more-nginx:${PENNI_MORE_RELEASE_ID}
-    build:
-      context: ..
-      dockerfile: deploy/Containerfile
-      target: nginx
+    image: docker.io/gabaconrado/penni-more-nginx:${PENNI_MORE_IMAGE_VERSION:?PENNI_MORE_IMAGE_VERSION is required}
     depends_on:
       server:
         condition: service_healthy

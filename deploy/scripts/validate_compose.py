@@ -15,6 +15,16 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 DEPLOY_ROOT = ROOT / "deploy"
+PRODUCTION_IMAGES = {
+    "server": (
+        "docker.io/gabaconrado/penni-more:"
+        "${PENNI_MORE_IMAGE_VERSION:?PENNI_MORE_IMAGE_VERSION is required}"
+    ),
+    "nginx": (
+        "docker.io/gabaconrado/penni-more-nginx:"
+        "${PENNI_MORE_IMAGE_VERSION:?PENNI_MORE_IMAGE_VERSION is required}"
+    ),
+}
 
 
 def load_document(path: Path) -> dict[str, Any]:
@@ -78,6 +88,17 @@ def validate_repository() -> None:
     )
 
     production_services = merged_production["services"]
+    local_services = merged_local["services"]
+    if "build" not in local_services["server"]:
+        raise SystemExit("local server must retain a build definition")
+    for service, expected_image in PRODUCTION_IMAGES.items():
+        production_service = production_services[service]
+        if "build" in production_service:
+            raise SystemExit(f"production {service} must not have a build definition")
+        if production_service.get("image") != expected_image:
+            raise SystemExit(
+                f"production {service} must use the versioned public image {expected_image}"
+            )
     if "ports" in production_services["database"]:
         raise SystemExit("production database must not publish ports")
     if "api-docs" in production_services:

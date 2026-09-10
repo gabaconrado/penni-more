@@ -13,13 +13,62 @@ shared_dir="${remote_dir}/shared"
 previous_target=''
 recovery_armed=false
 
+release_image_version() {
+  local target="${1:?release directory required}"
+  local target_id="${2:?release id required}"
+  local metadata_id=''
+  local image_version=''
+  local image_version_present=false
+  local key value
+  [[ -f "${target}/release.env" ]] || {
+    printf 'Release metadata is unavailable: %s\n' "${target}/release.env" >&2
+    return 2
+  }
+  while IFS='=' read -r key value; do
+    case "${key}" in
+      PENNI_MORE_RELEASE_ID) metadata_id="${value}" ;;
+      PENNI_MORE_IMAGE_VERSION)
+        image_version="${value}"
+        image_version_present=true
+        ;;
+    esac
+  done <"${target}/release.env"
+  [[ "${metadata_id}" == "${target_id}" ]] || {
+    printf 'Release metadata does not match release %s.\n' "${target_id}" >&2
+    return 2
+  }
+  if [[ "${image_version_present}" == true ]]; then
+    [[ "${image_version}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+      printf 'Release %s has an invalid image version.\n' "${target_id}" >&2
+      return 2
+    }
+  fi
+  printf '%s\n' "${image_version}"
+}
+
 compose_release() {
   local target="${1:?release directory required}"
   local target_id="${2:?release id required}"
+  local image_version
   shift 2
-  PENNI_MORE_RELEASE_ID="${target_id}" podman compose -p penni-more \
-    -f "${target}/deploy/compose.yaml" \
-    -f "${target}/deploy/compose.production.yaml" "$@"
+  image_version="$(release_image_version "${target}" "${target_id}")" || return $?
+  if [[ -n "${image_version}" ]]; then
+    PENNI_MORE_RELEASE_ID="${target_id}" PENNI_MORE_IMAGE_VERSION="${image_version}" \
+      PENNI_MORE_ENV_FILE="${shared_dir}/.env" \
+      podman compose -p penni-more \
+      -f "${target}/deploy/compose.yaml" \
+      -f "${target}/deploy/compose.production.yaml" "$@"
+  else
+    # Pre-versioned releases select their local images by release ID. Prevent the failed release's
+    # exported version from affecting legacy Compose interpolation during the first upgrade.
+    (
+      unset PENNI_MORE_IMAGE_VERSION
+      PENNI_MORE_RELEASE_ID="${target_id}" PENNI_MORE_ENV_FILE="${shared_dir}/.env" \
+        podman compose -p penni-more \
+        -f "${target}/deploy/compose.yaml" \
+        -f "${target}/deploy/compose.production.yaml" "$@"
+    )
+  fi
 }
 
 wait_for_database() {
@@ -136,12 +185,21 @@ source "${shared_dir}/.env"
 source "${release_dir}/release.env"
 set +a
 [[ "${PENNI_MORE_ENVIRONMENT:-}" == production ]] || { printf 'Remote environment is not production.\n' >&2; exit 2; }
+[[ "${PENNI_MORE_RELEASE_ID:-}" == "${release_id}" ]] || {
+  printf 'Release metadata does not match release %s.\n' "${release_id}" >&2
+  exit 2
+}
+[[ "${PENNI_MORE_IMAGE_VERSION:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+  printf 'Release %s has an invalid image version.\n' "${release_id}" >&2
+  exit 2
+}
 
-ln -sfn "${shared_dir}" "${release_dir}/shared"
 capture_previous_target
-compose_release "${release_dir}" "${release_id}" build server nginx
+compose_release "${release_dir}" "${release_id}" pull server
+compose_release "${release_dir}" "${release_id}" pull nginx
 compose_release "${release_dir}" "${release_id}" run --rm --no-deps server \
   python manage.py check --deploy --fail-level WARNING
+ln -sfn "${shared_dir}" "${release_dir}/shared"
 
 recovery_armed=true
 trap recover_previous_release EXIT
