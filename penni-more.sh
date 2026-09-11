@@ -6,7 +6,17 @@ readonly script_dir
 readonly base_compose="${script_dir}/deploy/compose.yaml"
 readonly local_compose="${script_dir}/deploy/compose.local.yaml"
 readonly compose_project="penni-more-local"
+readonly test_database_image="docker.io/library/postgres:17.6-bookworm"
+readonly test_database_name="penni_more_test_runner"
+readonly test_database_user="penni_more_test_runner"
+readonly test_database_password="test-runner-only-password"
+test_database_container_id=""
+test_database_cid_file=""
+test_database_temp_dir=""
+test_database_port=""
 integration_server_pid=""
+integration_server_port=""
+integration_port_lock=""
 
 require_tools() {
   local tool
@@ -69,56 +79,261 @@ build_web_assets() {
   npm --prefix "${script_dir}/src/web" run build
 }
 
-cleanup_integration() {
-  local exit_status=$?
+cleanup_test_resources() {
+  local exit_status="${1:-$?}"
   trap - EXIT INT TERM
   if [[ -n "${integration_server_pid}" ]]; then
     kill "${integration_server_pid}" 2>/dev/null || true
     wait "${integration_server_pid}" 2>/dev/null || true
     integration_server_pid=""
+    integration_server_port=""
+  fi
+  if [[ -n "${integration_port_lock}" ]]; then
+    rmdir -- "${integration_port_lock}" 2>/dev/null || true
+    integration_port_lock=""
+  fi
+  capture_test_database_container_id || true
+  if [[ -n "${test_database_container_id}" ]]; then
+    if ! podman stop "${test_database_container_id}" >/dev/null 2>&1; then
+      printf 'Warning: failed to stop test database container %s\n' \
+        "${test_database_container_id}" >&2
+    fi
+    test_database_container_id=""
+    test_database_port=""
+  fi
+  if [[ -n "${test_database_cid_file}" ]]; then
+    if ! rm -f -- "${test_database_cid_file}"; then
+      printf 'Warning: failed to remove test database CID file.\n' >&2
+    fi
+    test_database_cid_file=""
+  fi
+  if [[ -n "${test_database_temp_dir}" ]]; then
+    rmdir -- "${test_database_temp_dir}" 2>/dev/null || true
+    test_database_temp_dir=""
   fi
   return "${exit_status}"
+}
+
+exit_after_signal() {
+  local exit_status="$1"
+  cleanup_test_resources "${exit_status}" || true
+  exit "${exit_status}"
+}
+
+show_test_database_failure() {
+  printf 'Test database failed to become ready. Recent container logs follow.\n' >&2
+  podman logs --tail 50 "${test_database_container_id}" >&2 || true
+}
+
+capture_test_database_container_id() {
+  local captured_id=""
+  [[ -z "${test_database_container_id}" && -n "${test_database_cid_file}" && \
+    -r "${test_database_cid_file}" ]] || return 0
+  captured_id="$(<"${test_database_cid_file}")"
+  if [[ "${captured_id}" =~ ^[0-9a-f]{64}$ ]]; then
+    test_database_container_id="${captured_id}"
+    return 0
+  fi
+  [[ -z "${captured_id}" ]] || printf 'Test database CID file contained an invalid ID.\n' >&2
+  return 1
+}
+
+start_test_database() {
+  local port_mapping=""
+  local status=0
+  printf 'Starting isolated PostgreSQL test database.\n' >&2
+  test_database_temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/penni-more-test-database.XXXXXX")"
+  test_database_cid_file="${test_database_temp_dir}/container.cid"
+  podman run --detach --rm --cidfile "${test_database_cid_file}" \
+    --publish 127.0.0.1::5432/tcp \
+    --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,nodev \
+    --env "POSTGRES_DB=${test_database_name}" \
+    --env "POSTGRES_USER=${test_database_user}" \
+    --env "POSTGRES_PASSWORD=${test_database_password}" \
+    "${test_database_image}" >/dev/null || {
+    status=$?
+    capture_test_database_container_id || true
+    printf 'Could not create the isolated test database container.\n' >&2
+    return "${status}"
+  }
+  if ! capture_test_database_container_id || [[ -z "${test_database_container_id}" ]]; then
+    printf 'Test database did not return a valid container ID.\n' >&2
+    return 1
+  fi
+
+  port_mapping="$(podman port "${test_database_container_id}" 5432/tcp)" || {
+    status=$?
+    printf 'Could not discover the test database port.\n' >&2
+    return "${status}"
+  }
+  if [[ ! "${port_mapping}" =~ ^127\.0\.0\.1:([0-9]+)$ ]]; then
+    printf 'Test database returned an invalid loopback port mapping.\n' >&2
+    return 1
+  fi
+  test_database_port="${BASH_REMATCH[1]}"
+  if ((10#${test_database_port} < 1 || 10#${test_database_port} > 65535)); then
+    printf 'Test database returned an out-of-range host port.\n' >&2
+    return 1
+  fi
+
+  local attempt
+  local running=""
+  for ((attempt = 1; attempt <= 30; attempt++)); do
+    if podman exec "${test_database_container_id}" pg_isready \
+      -U "${test_database_user}" -d "${test_database_name}" >/dev/null 2>&1; then
+      printf 'Isolated PostgreSQL test database is ready on 127.0.0.1:%s.\n' \
+        "${test_database_port}" >&2
+      return 0
+    fi
+    if ! running="$(podman inspect --format '{{.State.Running}}' \
+      "${test_database_container_id}" 2>/dev/null)" || [[ "${running}" != "true" ]]; then
+      show_test_database_failure
+      return 1
+    fi
+    if ((attempt < 30)); then
+      sleep 1
+    fi
+  done
+  show_test_database_failure
+  return 1
+}
+
+with_test_database() {
+  require_tools podman
+  trap 'cleanup_test_resources "$?"' EXIT
+  trap 'exit_after_signal 130' INT
+  trap 'exit_after_signal 143' TERM
+  start_test_database
+  export POSTGRES_DB="${test_database_name}"
+  export POSTGRES_USER="${test_database_user}"
+  export POSTGRES_PASSWORD="${test_database_password}"
+  export POSTGRES_HOST="127.0.0.1"
+  export POSTGRES_PORT="${test_database_port}"
+  "$@"
+  cleanup_test_resources 0
 }
 
 check_contract() {
   npm --prefix "${script_dir}/src/contract" run lint
 }
 
+find_integration_port() {
+  local port=""
+  port="$(uv run --project "${script_dir}/src/backend" python -c \
+    'import socket; sock = socket.socket(); sock.bind(("127.0.0.1", 0)); print(sock.getsockname()[1]); sock.close()')"
+  if [[ ! "${port}" =~ ^[0-9]+$ ]] || ((10#${port} < 1 || 10#${port} > 65535)); then
+    printf 'Could not allocate a valid integration server port.\n' >&2
+    return 1
+  fi
+  printf '%s\n' "${port}"
+}
+
+integration_server_is_running() {
+  local running_pid=""
+  kill -0 "${integration_server_pid}" 2>/dev/null || return 1
+  while IFS= read -r running_pid; do
+    [[ "${running_pid}" == "${integration_server_pid}" ]] && return 0
+  done < <(jobs -pr)
+  return 1
+}
+
+start_integration_server() {
+  local attempt
+  local integration_port=""
+  local probe_status=1
+  for ((attempt = 1; attempt <= 5; attempt++)); do
+    integration_port="$(find_integration_port)"
+    integration_port_lock="${TMPDIR:-/tmp}/penni-more-integration-port-${integration_port}.lock"
+    if ! mkdir -- "${integration_port_lock}" 2>/dev/null; then
+      integration_port_lock=""
+      continue
+    fi
+
+    DJANGO_SETTINGS_MODULE=penni_more.settings.local \
+      uv run --project "${script_dir}/src/backend" python "${script_dir}/src/backend/manage.py" \
+        runserver "127.0.0.1:${integration_port}" --noreload &
+    integration_server_pid=$!
+    local readiness_attempt
+    for ((readiness_attempt = 1; readiness_attempt <= 30; readiness_attempt++)); do
+      if ! integration_server_is_running; then
+        wait "${integration_server_pid}" 2>/dev/null || true
+        integration_server_pid=""
+        break
+      fi
+      if curl --fail --silent "http://127.0.0.1:${integration_port}/health/live" \
+        >/dev/null; then
+        sleep 0.1
+        if integration_server_is_running && \
+          curl --fail --silent "http://127.0.0.1:${integration_port}/health/live" \
+            >/dev/null; then
+          integration_server_port="${integration_port}"
+          printf 'Isolated integration server is ready on 127.0.0.1:%s.\n' \
+            "${integration_server_port}" >&2
+          return 0
+        fi
+      else
+        probe_status=$?
+      fi
+      sleep 1
+    done
+
+    if [[ -n "${integration_server_pid}" ]]; then
+      kill "${integration_server_pid}" 2>/dev/null || true
+      wait "${integration_server_pid}" 2>/dev/null || true
+      integration_server_pid=""
+    fi
+    rmdir -- "${integration_port_lock}" 2>/dev/null || true
+    integration_port_lock=""
+    printf 'Integration server did not retain port %s; retrying.\n' \
+      "${integration_port}" >&2
+  done
+  printf 'Could not start an isolated integration server.\n' >&2
+  return "${probe_status}"
+}
+
 check_integration() {
-  local integration_port="${PENNI_MORE_INTEGRATION_PORT:-8010}"
+  local integration_port=""
   local status=0
   build_web_assets
   integration_server_pid=""
-  trap cleanup_integration EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
   DJANGO_SETTINGS_MODULE=penni_more.settings.local \
-    POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-penni_more_local}" \
     uv run --project "${script_dir}/src/backend" python "${script_dir}/src/backend/manage.py" \
-      runserver "127.0.0.1:${integration_port}" --noreload &
-  integration_server_pid=$!
-  for _ in {1..30}; do
-    if curl --fail --silent "http://127.0.0.1:${integration_port}/health/live" >/dev/null; then
-      break
-    fi
-    sleep 1
-  done
-  curl --fail --silent "http://127.0.0.1:${integration_port}/health/live" >/dev/null
+      migrate --noinput
+  start_integration_server
+  integration_port="${integration_server_port}"
   PLAYWRIGHT_BASE_URL="http://127.0.0.1:${integration_port}" \
     npm --prefix "${script_dir}/src/web" run test:browser || status=$?
-  cleanup_integration
   return "${status}"
+}
+
+check_all() {
+  check_docs
+  check_backend
+  test_backend
+  check_web
+  check_contract
+  check_integration
+}
+
+check_backend_scope() {
+  check_backend
+  test_backend
+}
+
+test_all() {
+  test_backend
+  npm --prefix "${script_dir}/src/web" run test
 }
 
 run_check() {
   local scope="${1:-all}"
   case "${scope}" in
-    all) check_docs; check_backend; test_backend; check_web; check_contract; check_integration ;;
+    all) with_test_database check_all ;;
     docs) check_docs ;;
-    backend) check_backend; test_backend ;;
+    backend) with_test_database check_backend_scope ;;
     web) check_web ;;
     contract) check_contract ;;
-    integration) check_integration ;;
+    integration) with_test_database check_integration ;;
     *) printf 'Unknown check scope: %s\n' "${scope}" >&2; return 2 ;;
   esac
 }
@@ -141,7 +356,7 @@ main() {
       build_web_assets
       ;;
     lint) check_docs; check_backend; check_web; check_contract ;;
-    test) test_backend; npm --prefix "${script_dir}/src/web" run test ;;
+    test) with_test_database test_all ;;
     check) run_check "${1:-all}" ;;
     up) require_tools podman; build_web_assets; compose up -d --build --force-recreate ;;
     down) require_tools podman; compose down ;;

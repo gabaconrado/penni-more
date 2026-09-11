@@ -19,6 +19,11 @@ podman login docker.io
 ./penni-more.sh publish 1.2.3
 ```
 
+Publication validation requires a working local Podman runtime. It automatically provisions an
+isolated PostgreSQL test container on a dynamic loopback port and removes it afterward, so do not
+start the local Compose database for publication. An already-running local stack is not reused or
+stopped.
+
 Publishing accepts only a stable `MAJOR.MINOR.PATCH` version and requires a clean `main` checkout.
 It runs the complete local check, rechecks Git state, and force-creates the annotated local tag
 `v1.2.3` at the validated commit. It then builds both `linux/amd64` targets before pushing these

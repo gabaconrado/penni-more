@@ -95,8 +95,33 @@ exit 0
 SCRIPT
   cat >"${test_root}/bin/uv" <<'SCRIPT'
 #!/usr/bin/env bash
+if [[ "$*" == *"manage.py migrate --noinput"* ]]; then
+  exit 0
+fi
+if [[ "$*" == *"import socket"* ]]; then
+  printf '49154\n'
+  exit 0
+fi
 printf '%s\n' "$$" >"${SERVER_PID_LOG}"
 exec /bin/sleep 60
+SCRIPT
+  cat >"${test_root}/bin/podman" <<'SCRIPT'
+#!/usr/bin/env bash
+case "$1" in
+  run)
+    while (($# > 0)); do
+      if [[ "$1" == --cidfile ]]; then
+        printf '%064d\n' 1 >"$2"
+        break
+      fi
+      shift
+    done
+    ;;
+  port) printf '127.0.0.1:49153\n' ;;
+  exec) exit 0 ;;
+  stop) exit 0 ;;
+  *) exit 1 ;;
+esac
 SCRIPT
   cat >"${test_root}/bin/curl" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -107,7 +132,7 @@ SCRIPT
 exit 0
 SCRIPT
   chmod +x "${test_root}/bin/npm" "${test_root}/bin/uv" "${test_root}/bin/curl" \
-    "${test_root}/bin/sleep"
+    "${test_root}/bin/podman" "${test_root}/bin/sleep"
   export SERVER_PID_LOG="${test_root}/server-pid"
 
   run env PATH="${test_root}/bin:${PATH}" "${repository_root}/penni-more.sh" check integration
@@ -120,7 +145,7 @@ SCRIPT
 }
 
 @test "Compose validation rejects a schema-invalid fixture" {
-  run "${repository_root}/src/backend/.venv/bin/python" \
+  run uv run --project "${repository_root}/src/backend" python \
     "${repository_root}/deploy/scripts/validate_compose.py" --schema-only \
     "${repository_root}/deploy/tests/fixtures/compose.invalid.yaml"
 

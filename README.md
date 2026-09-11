@@ -48,6 +48,24 @@ agent then validates and commits the result locally, and the cycle ends with a c
 Agents never write to Git remotes. Public documentation and Git remote reads are allowed;
 authenticated or operational access to external services requires explicit approval.
 
+## Tests
+
+Database-dependent commands require Podman and automatically run a fresh PostgreSQL container on a
+dynamically assigned loopback port. The container and its temporary data are removed when the
+command succeeds, fails, or is interrupted. This test database is independent of the local Compose
+stack, so no local database needs to be started first and an existing local stack is left unchanged.
+
+The self-contained database lifecycle applies to these commands:
+
+```bash
+./penni-more.sh test
+./penni-more.sh check backend
+./penni-more.sh check integration
+./penni-more.sh check
+```
+
+Concurrent commands receive separate containers and ports.
+
 ## License
 
 MIT
