@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Accounts | Penni More{% endblock %}
+{% block content %}
+  <section aria-labelledby="page-title">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p class="mb-2 text-sm font-semibold tracking-wide text-base-content/70 uppercase">Your money</p>
+        <h1 id="page-title" class="text-3xl font-bold tracking-tight sm:text-4xl">Accounts</h1>
+        <p class="mt-3 max-w-2xl text-base-content/70">
+          View accounts you own and accounts that other people have shared with you.
+        </p>
+      </div>
+      <a class="btn btn-primary shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'accounts:create' %}">Create account</a>
+    </div>
+    {% if accounts %}
+      <div class="mt-8 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-sm">
+        <div class="overflow-x-auto"
+             role="region"
+             aria-label="Accessible accounts"
+             tabindex="0">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Description</th>
+                <th scope="col">Type</th>
+                <th scope="col">Access</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for account in accounts %}
+                <tr>
+                  <th scope="row">
+                    <a class="link link-primary font-semibold focus-visible:outline-2 focus-visible:outline-offset-2"
+                       href="{% url 'accounts:detail' account.pk %}">{{ account.name }}</a>
+                  </th>
+                  <td>
+                    {% if account.description %}
+                      {{ account.description }}
+                    {% else %}
+                      <span class="text-base-content/60">No description</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ account.get_account_type_display }}</td>
+                  <td>
+                    {% if account.owner_id == user.id %}
+                      <span class="badge badge-primary">Owner</span>
+                    {% else %}
+                      <span class="badge badge-ghost">Shared</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% else %}
+      <div class="mt-8 rounded-box border border-base-300 bg-base-100 p-8 text-center shadow-sm sm:p-12">
+        <h2 class="text-xl font-semibold">No accounts yet</h2>
+        <p class="mx-auto mt-2 max-w-lg text-base-content/70">
+          Create your first account to start organizing your finances. Shared accounts will also
+          appear here.
+        </p>
+        <a class="btn btn-primary mt-6 focus-visible:outline-2 focus-visible:outline-offset-2"
+           href="{% url 'accounts:create' %}">Create your first account</a>
+      </div>
+    {% endif %}
+  </section>
+{% endblock %}

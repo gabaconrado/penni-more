@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ account.name }} | Accounts | Penni More{% endblock %}
+{% block content %}
+  <section aria-labelledby="page-title">
+    <nav class="mb-6 text-sm" aria-label="Breadcrumb">
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'accounts:list' %}">Accounts</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ account.name }}</span>
+    </nav>
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="mb-2 text-sm font-semibold tracking-wide text-base-content/70 uppercase">
+          {% if is_owner %}Owned account{% else %}Shared account{% endif %}
+        </p>
+        <h1 id="page-title"
+            class="break-words text-3xl font-bold tracking-tight sm:text-4xl">
+          {{ account.name }}
+        </h1>
+      </div>
+      {% if is_owner %}
+        <div class="flex flex-wrap gap-2">
+          <a class="btn btn-outline focus-visible:outline-2 focus-visible:outline-offset-2"
+             href="{% url 'accounts:update' account.pk %}">Edit account</a>
+          <a class="btn btn-error btn-outline focus-visible:outline-2 focus-visible:outline-offset-2"
+             href="{% url 'accounts:delete' account.pk %}">Delete account</a>
+        </div>
+      {% endif %}
+    </div>
+    <div class="mt-8 rounded-box border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8">
+      <h2 class="text-xl font-semibold">Account information</h2>
+      <dl class="mt-6 grid gap-6 sm:grid-cols-2">
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Name</dt>
+          <dd class="mt-1 break-words">
+            {{ account.name }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Type</dt>
+          <dd class="mt-1">
+            {{ account.get_account_type_display }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Access</dt>
+          <dd class="mt-1">{% if is_owner %}Owner{% else %}Shared{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Owner</dt>
+          <dd class="mt-1 break-all">
+            {{ account.owner.email }}
+          </dd>
+        </div>
+        <div class="sm:col-span-2">
+          <dt class="text-sm font-medium text-base-content/65">Description</dt>
+          <dd class="mt-1 whitespace-pre-wrap break-words">{% if account.description %}{{ account.description }}{% else %}<span class="text-base-content/60">No description provided.</span>{% endif %}</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+  {% if is_owner %}
+    <section class="mt-8 rounded-box border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8"
+             aria-labelledby="sharing-title">
+      <h2 id="sharing-title" class="text-xl font-semibold">Shared access</h2>
+      <p class="mt-2 text-base-content/70">
+        Share read-only account information with one existing user at a time.
+      </p>
+      {% if share_form.non_field_errors %}
+        <div class="alert alert-error mt-6"
+             role="alert"
+             aria-labelledby="share-error-title">
+          <div>
+            <h3 id="share-error-title" class="font-semibold">We could not share this account</h3>
+            <ul class="mt-1 list-disc pl-5">
+              {% for error in share_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          </div>
+        </div>
+      {% endif %}
+      <form class="mt-6 max-w-xl"
+            method="post"
+            action="{% url 'accounts:share' account.pk %}">
+        {% csrf_token %}
+        <div>
+          <label class="label mb-2 font-medium"
+                 for="{{ share_form.email.id_for_label }}">{{ share_form.email.label }}</label>
+          <input class="input w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if share_form.email.errors %} input-error{% endif %}"
+                 type="email"
+                 name="{{ share_form.email.html_name }}"
+                 id="{{ share_form.email.id_for_label }}"
+                 value="{{ share_form.email.value|default_if_none:'' }}"
+                 autocomplete="email"
+                 inputmode="email"
+                 required
+                 {% if share_form.email.errors %}aria-invalid="true" aria-describedby="{{ share_form.email.auto_id }}_error"{% endif %}>
+          {% if share_form.email.errors %}
+            <ul id="{{ share_form.email.auto_id }}_error"
+                class="mt-2 text-sm text-error">
+              {% for error in share_form.email.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <button class="btn btn-primary mt-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+                type="submit">Share account</button>
+      </form>
+      <div class="mt-8 border-t border-base-300 pt-6">
+        <h3 class="font-semibold">People with access</h3>
+        {% if shares %}
+          <ul class="mt-4 divide-y divide-base-300"
+              aria-label="People with shared access">
+            {% for share in shares %}
+              <li class="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
+                <span class="break-all">{{ share.recipient.email }}</span>
+                <form method="post"
+                      action="{% url 'accounts:revoke' account.pk share.pk %}">
+                  {% csrf_token %}
+                  <button class="btn btn-outline btn-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+                          type="submit">Revoke access for {{ share.recipient.email }}</button>
+                </form>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="mt-2 text-base-content/70">This account has not been shared with anyone.</p>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

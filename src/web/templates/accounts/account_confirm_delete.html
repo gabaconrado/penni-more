@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ account.name }} | Penni More{% endblock %}
+{% block content %}
+  <section class="mx-auto w-full max-w-2xl" aria-labelledby="page-title">
+    <nav class="mb-6 text-sm" aria-label="Breadcrumb">
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'accounts:list' %}">Accounts</a>
+      <span aria-hidden="true">/</span>
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'accounts:detail' account.pk %}">{{ account.name }}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">Delete</span>
+    </nav>
+    <div class="rounded-box border border-error/40 bg-base-100 p-6 shadow-sm sm:p-8">
+      <h1 id="page-title" class="text-3xl font-bold tracking-tight">Delete account</h1>
+      <div class="alert alert-warning mt-6" role="alert">
+        <span>
+          Deleting <strong>{{ account.name }}</strong> is permanent. Its shared-access records will
+          also be deleted, and this action cannot be undone.
+        </span>
+      </div>
+      <form method="post" class="mt-6 flex flex-wrap gap-3">
+        {% csrf_token %}
+        <button class="btn btn-error focus-visible:outline-2 focus-visible:outline-offset-2"
+                type="submit">Permanently delete account</button>
+        <a class="btn btn-ghost focus-visible:outline-2 focus-visible:outline-offset-2"
+           href="{% url 'accounts:detail' account.pk %}">Cancel</a>
+      </form>
+    </div>
+  </section>
+{% endblock %}

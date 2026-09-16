@@ -15,11 +15,12 @@ describe("the server-rendered shell", () => {
     expect(template).toContain("flex min-h-screen flex-col");
   });
 
-  it("labels the initial page and does not present unfinished feature controls", async () => {
+  it("labels the home page without describing accounts as future work", async () => {
     const template = await readFile(templateUrl("home.html"), "utf8");
 
     expect(template).toContain('aria-labelledby="page-title"');
-    expect(template).toContain("Account and transaction\n          features will be added");
+    expect(template).toContain("organizing your accounts");
+    expect(template).not.toContain("Account and transaction\n          features will be added");
     expect(template).not.toContain("<form");
   });
 
@@ -32,5 +33,21 @@ describe("the server-rendered shell", () => {
     expect(template).toContain("{% url 'logout' %}");
     expect(template).toContain("{% csrf_token %}");
     expect(template).toContain('type="submit">Sign out</button>');
+  });
+
+  it("offers one authenticated Accounts navigation link", async () => {
+    const template = await readFile(templateUrl("base.html"), "utf8");
+
+    expect(template.match(/\{% url 'accounts:list' %\}/g)).toHaveLength(1);
+    expect(template).toContain(">Accounts</a>");
+  });
+
+  it("announces Django status and error messages", async () => {
+    const template = await readFile(templateUrl("base.html"), "utf8");
+
+    expect(template).toContain("{% if messages %}");
+    expect(template).toContain('aria-label="Status messages"');
+    expect(template).toContain("alert-error");
+    expect(template).toContain("alert-success");
   });
 });
