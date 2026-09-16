@@ -14,6 +14,11 @@ test.beforeEach(async ({ page }) => {
 test("renders an accessible email and password form", async ({ page }) => {
   await expect(page).toHaveTitle("Sign in | Penni More");
   await expect(page.getByRole("navigation", { name: "Primary navigation" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Penni More", exact: true })).toHaveAttribute(
+    "href",
+    "/",
+  );
+  await expect(page.getByText("dev", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
 
   const email = page.getByRole("textbox", { name: "Email" });

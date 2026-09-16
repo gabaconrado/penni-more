@@ -38,7 +38,7 @@ SCRIPT
   cat >"${test_root}/bin/podman" <<'SCRIPT'
 #!/usr/bin/env bash
 printf 'podman %s\n' "$*" >>"${CALL_LOG}"
-if [[ "$*" == "login --get-login docker.io" ]]; then
+if [[ "$*" == "login docker.io" ]]; then
   exit "${LOGIN_STATUS:-0}"
 fi
 if [[ "$*" == *"--target ${FAIL_BUILD_TARGET:-__none__}"* ]]; then
@@ -86,13 +86,30 @@ run_publish() {
   [ ! -e "${CALL_LOG}" ]
 }
 
-@test "missing registry authentication gives login guidance without attempting login" {
-  LOGIN_STATUS=1 run_publish 1.2.3
+@test "interactive login failure stops before validation tag build or push" {
+  LOGIN_STATUS=41 run_publish 1.2.3
 
-  [ "${status}" -eq 2 ]
-  [[ "${output}" == *"podman login docker.io"* ]]
-  grep -Fxq 'podman login --get-login docker.io' "${CALL_LOG}"
+  [ "${status}" -eq 41 ]
+  grep -Fxq 'podman login docker.io' "${CALL_LOG}"
   ! grep -Eq 'check|git |build|push' "${CALL_LOG}"
+}
+
+@test "publish performs exact interactive login before all release work" {
+  run_publish 1.2.3
+
+  [ "${status}" -eq 0 ]
+  [ "$(grep -c '^podman login docker.io$' "${CALL_LOG}")" -eq 1 ]
+  ! grep -Eq '^podman login .*--get-login|--username|--password|--password-stdin|token' \
+    "${CALL_LOG}"
+  login_line="$(grep -n '^podman login docker.io$' "${CALL_LOG}" | cut -d: -f1)"
+  check_line="$(grep -n '^check check$' "${CALL_LOG}" | cut -d: -f1)"
+  tag_line="$(grep -n '^git .*tag ' "${CALL_LOG}" | cut -d: -f1)"
+  first_build_line="$(grep -n '^podman build ' "${CALL_LOG}" | head -n 1 | cut -d: -f1)"
+  first_push_line="$(grep -n '^podman push ' "${CALL_LOG}" | head -n 1 | cut -d: -f1)"
+  [ "${login_line}" -lt "${check_line}" ]
+  [ "${check_line}" -lt "${tag_line}" ]
+  [ "${tag_line}" -lt "${first_build_line}" ]
+  [ "${first_build_line}" -lt "${first_push_line}" ]
 }
 
 @test "missing required Podman tool fails before validation" {
@@ -114,6 +131,7 @@ run_publish() {
   VALIDATION_STATUS=23 run_publish 1.2.3
 
   [ "${status}" -eq 23 ]
+  grep -Fxq 'podman login docker.io' "${CALL_LOG}"
   grep -Fxq 'check check' "${CALL_LOG}"
   ! grep -Eq '^git |podman build|podman push' "${CALL_LOG}"
   ! /usr/bin/git -C "${repository}" rev-parse -q --verify refs/tags/v1.2.3
@@ -145,11 +163,13 @@ run_publish() {
   [ "$(/usr/bin/git -C "${repository}" rev-parse 'v1.2.3^{commit}')" = \
     "$(/usr/bin/git -C "${repository}" rev-parse HEAD)" ]
   check_line="$(grep -n '^check check$' "${CALL_LOG}" | cut -d: -f1)"
+  login_line="$(grep -n '^podman login docker.io$' "${CALL_LOG}" | cut -d: -f1)"
   tag_line="$(grep -n '^git .*tag .*--force.*--annotate v1.2.3' "${CALL_LOG}" | cut -d: -f1)"
   app_build_line="$(grep -n 'podman build .*--platform linux/amd64 .*--target application .*docker.io/gabaconrado/penni-more:1.2.3' "${CALL_LOG}" | cut -d: -f1)"
   nginx_build_line="$(grep -n 'podman build .*--platform linux/amd64 .*--target nginx .*docker.io/gabaconrado/penni-more-nginx:1.2.3' "${CALL_LOG}" | cut -d: -f1)"
   app_push_line="$(grep -n '^podman push docker.io/gabaconrado/penni-more:1.2.3$' "${CALL_LOG}" | cut -d: -f1)"
   nginx_push_line="$(grep -n '^podman push docker.io/gabaconrado/penni-more-nginx:1.2.3$' "${CALL_LOG}" | cut -d: -f1)"
+  [ "${login_line}" -lt "${check_line}" ]
   [ "${check_line}" -lt "${tag_line}" ]
   [ "${tag_line}" -lt "${app_build_line}" ]
   [ "${app_build_line}" -lt "${nginx_build_line}" ]

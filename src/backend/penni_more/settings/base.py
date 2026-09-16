@@ -11,6 +11,7 @@ WEB_ROOT = REPOSITORY_ROOT / "src" / "web"
 SECRET_KEY = "insecure-local-development-key"
 DEBUG = False
 ALLOWED_HOSTS: list[str] = []
+PENNI_MORE_VERSION_LABEL = "dev"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -46,6 +47,7 @@ TEMPLATES: list[dict[str, Any]] = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "penni_more.context_processors.release_version",
             ],
         },
     }

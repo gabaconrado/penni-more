@@ -579,6 +579,7 @@ SCRIPT
     DJANGO_SETTINGS_MODULE=penni_more.settings.production \
     DJANGO_SECRET_KEY=probe-test-only-secret-key-000000000000000000000000 \
     POSTGRES_PASSWORD=probe-test-only PENNI_MORE_DOMAIN=money.example.test \
+    PENNI_MORE_IMAGE_VERSION=0.0.0 \
     "${repository_root}/src/backend/.venv/bin/python" - <<'PYTHON'
 import django
 from django.test import Client

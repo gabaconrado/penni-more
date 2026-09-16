@@ -12,12 +12,15 @@ working directory if needed, then enable the application service and certificate
 
 ## Publish and deploy a version
 
-Log in through Podman before publishing. The scripts do not accept or store Docker Hub credentials:
+Publish a stable version with one command:
 
 ```bash
-podman login docker.io
 ./penni-more.sh publish 1.2.3
 ```
+
+The publish command runs the interactive `podman login docker.io` flow after its inexpensive local
+guards and before full validation, builds, or pushes. Podman owns credential entry and storage; the
+scripts do not accept or store Docker Hub credentials.
 
 Publication validation requires a working local Podman runtime. It automatically provisions an
 isolated PostgreSQL test container on a dynamic loopback port and removes it afterward, so do not
@@ -45,6 +48,14 @@ Deploy the matching version from the exact tagged commit:
 ./penni-more.sh deploy 1.2.3
 ```
 
+These commands default to the SSH alias `penni` and remote directory
+`/home/penni/penni-more`. Override either value independently for another environment:
+
+```bash
+DEPLOY_SSH_TARGET=other-host ./penni-more.sh deploy 1.2.3 --dry-run
+DEPLOY_REMOTE_DIR=/srv/penni-more ./penni-more.sh deploy 1.2.3 --dry-run
+```
+
 Deployment requires a clean `main` checkout, an annotated local `v1.2.3` tag, and `HEAD` at that
 tag. The dry run performs only the read-only remote preflight. A real deployment transfers the
 deployment automation and release metadata, pulls both public images before any production
@@ -57,6 +68,10 @@ version so recovery starts the prior release with the prior images. Deployment k
 does not undo a migration. Database restoration is intentionally a manual maintenance-window
 operation and can discard newer writes. There is no top-level remote restore command and no
 protection against host or disk loss.
+
+The repository README badge reports the latest stable application image visible through Docker
+Hub and Shields.io; it does not report production deployment state. The application interface
+instead displays the version from the active release metadata, or `dev` during local development.
 
 To restore the retained backup, first announce a maintenance window and record the selected dump
 and explicit data-loss approval. On the production host, run the following from the deployment

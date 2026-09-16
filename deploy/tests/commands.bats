@@ -152,3 +152,29 @@ SCRIPT
   [ "${status}" -ne 0 ]
   [[ "${output}" == *"definitely-not-a-compose-property"* ]]
 }
+
+@test "Compose validation requires image version metadata in production server" {
+  test_root="$(mktemp -d)"
+  mkdir -p "${test_root}/deploy"
+  cp "${repository_root}/deploy/compose.yaml" "${test_root}/deploy/compose.yaml"
+  cp "${repository_root}/deploy/compose.local.yaml" "${test_root}/deploy/compose.local.yaml"
+  cp "${repository_root}/deploy/compose.production.yaml" \
+    "${test_root}/deploy/compose.production.yaml"
+  sed -i '/^      PENNI_MORE_IMAGE_VERSION:/d' \
+    "${test_root}/deploy/compose.production.yaml"
+
+  run uv run --project "${repository_root}/src/backend" python -c \
+    'import importlib.util, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("validate_compose", path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.DEPLOY_ROOT = pathlib.Path(sys.argv[2]) / "deploy"
+module.validate_schema = lambda documents: None
+module.validate_repository()' \
+    "${repository_root}/deploy/scripts/validate_compose.py" "${test_root}"
+
+  [ "${status}" -ne 0 ]
+  [[ "${output}" == *"production server must receive the required"* ]]
+  rm -rf "${test_root}"
+}

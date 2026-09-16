@@ -37,10 +37,46 @@ teardown() {
   rm -rf "${test_root}"
 }
 
-@test "missing deployment variables fail before transport" {
+@test "unset deployment variables select the standard defaults" {
   unset DEPLOY_SSH_TARGET
+  unset DEPLOY_REMOTE_DIR
   run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
-  [ "${status}" -ne 0 ]
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Target: penni:/home/penni/penni-more"* ]]
+  grep -Fxq 'ssh penni bash -s -- /home/penni/penni-more' "${CALL_LOG}"
+}
+
+@test "empty deployment variables select the standard defaults" {
+  DEPLOY_SSH_TARGET= DEPLOY_REMOTE_DIR= \
+    run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Target: penni:/home/penni/penni-more"* ]]
+}
+
+@test "deployment target and directory can be overridden independently" {
+  DEPLOY_SSH_TARGET=other-host DEPLOY_REMOTE_DIR= \
+    run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Target: other-host:/home/penni/penni-more"* ]]
+
+  : >"${CALL_LOG}"
+  DEPLOY_SSH_TARGET= DEPLOY_REMOTE_DIR=/srv/other \
+    run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Target: penni:/srv/other"* ]]
+
+  : >"${CALL_LOG}"
+  DEPLOY_SSH_TARGET=other-host DEPLOY_REMOTE_DIR=/srv/other \
+    run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"Target: other-host:/srv/other"* ]]
+}
+
+@test "unsafe deployment target fails before transport" {
+  DEPLOY_SSH_TARGET='bad target' \
+    run "${repository}/deploy/scripts/deploy.sh" 1.2.3 --dry-run
+  [ "${status}" -eq 2 ]
   [ ! -e "${CALL_LOG}" ]
 }
 

@@ -25,6 +25,9 @@ PRODUCTION_IMAGES = {
         "${PENNI_MORE_IMAGE_VERSION:?PENNI_MORE_IMAGE_VERSION is required}"
     ),
 }
+PRODUCTION_IMAGE_VERSION = (
+    "${PENNI_MORE_IMAGE_VERSION:?PENNI_MORE_IMAGE_VERSION is required}"
+)
 
 
 def load_document(path: Path) -> dict[str, Any]:
@@ -105,6 +108,13 @@ def validate_repository() -> None:
         raise SystemExit("production must not include API documentation")
     if "ports" in production_services["server"]:
         raise SystemExit("production server must not publish ports")
+    server_environment = production_services["server"].get("environment")
+    if not isinstance(server_environment, Mapping) or (
+        server_environment.get("PENNI_MORE_IMAGE_VERSION") != PRODUCTION_IMAGE_VERSION
+    ):
+        raise SystemExit(
+            "production server must receive the required PENNI_MORE_IMAGE_VERSION"
+        )
 
 
 def main() -> None:

@@ -1,10 +1,13 @@
 """Security-focused production settings."""
 
 import os
+import re
 
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import *  # noqa: F403
+
+_STABLE_VERSION_PATTERN = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)")
 
 
 def required_environment(name: str) -> str:
@@ -23,6 +26,14 @@ ALLOWED_HOSTS = [DOMAIN]
 CSRF_TRUSTED_ORIGINS = [f"https://{DOMAIN}"]
 
 DATABASES["default"]["PASSWORD"] = required_environment("POSTGRES_PASSWORD")
+
+_image_version = required_environment("PENNI_MORE_IMAGE_VERSION")
+if _STABLE_VERSION_PATTERN.fullmatch(_image_version) is None:
+    raise ImproperlyConfigured(
+        "The PENNI_MORE_IMAGE_VERSION environment variable must be a stable semantic version "
+        "in MAJOR.MINOR.PATCH format."
+    )
+PENNI_MORE_VERSION_LABEL = f"v{_image_version}"
 
 SECURE_SSL_REDIRECT = True
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

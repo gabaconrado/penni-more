@@ -14,6 +14,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_ENVIRONMENT = {
     "DJANGO_SECRET_KEY": "settings-test-only-9Qv7Lw2Ks8Fh4Zx6Bn3Cp5Rt1Ym0",
     "PENNI_MORE_DOMAIN": "money.example.test",
+    "PENNI_MORE_IMAGE_VERSION": "0.2.0",
     "POSTGRES_PASSWORD": "settings-test-password",
 }
 
@@ -49,6 +50,14 @@ def production_process(
             {
                 "DJANGO_SECRET_KEY": PRODUCTION_ENVIRONMENT["DJANGO_SECRET_KEY"],
                 "PENNI_MORE_DOMAIN": PRODUCTION_ENVIRONMENT["PENNI_MORE_DOMAIN"],
+            },
+        ),
+        (
+            "PENNI_MORE_IMAGE_VERSION",
+            {
+                "DJANGO_SECRET_KEY": PRODUCTION_ENVIRONMENT["DJANGO_SECRET_KEY"],
+                "PENNI_MORE_DOMAIN": PRODUCTION_ENVIRONMENT["PENNI_MORE_DOMAIN"],
+                "POSTGRES_PASSWORD": PRODUCTION_ENVIRONMENT["POSTGRES_PASSWORD"],
             },
         ),
     ],
@@ -92,6 +101,82 @@ print(json.dumps({
         "session_secure": True,
         "ssl_redirect": True,
     }
+
+
+def test_production_formats_release_version() -> None:
+    process = production_process(
+        "from penni_more.settings import production; print(production.PENNI_MORE_VERSION_LABEL)",
+        environment=PRODUCTION_ENVIRONMENT,
+    )
+
+    assert process.returncode == 0, process.stderr
+    assert process.stdout == "v0.2.0\n"
+
+
+@pytest.mark.parametrize(
+    "image_version",
+    [
+        " ",
+        "0.2",
+        "01.2.0",
+        "0.02.0",
+        "0.2.00",
+        "v0.2.0",
+        "0.2.0-rc.1",
+        "0.2.0+build.1",
+        "1.2.3.4",
+        "latest",
+    ],
+)
+def test_production_rejects_invalid_release_version(image_version: str) -> None:
+    environment = {**PRODUCTION_ENVIRONMENT, "PENNI_MORE_IMAGE_VERSION": image_version}
+
+    process = production_process(
+        "from penni_more.settings import production", environment=environment
+    )
+
+    assert process.returncode != 0
+    if image_version.strip():
+        assert "must be a stable semantic version in MAJOR.MINOR.PATCH format" in process.stderr
+        assert image_version not in process.stderr
+    else:
+        assert "The PENNI_MORE_IMAGE_VERSION environment variable is required." in process.stderr
+
+
+def test_production_trims_release_version() -> None:
+    environment = {
+        **PRODUCTION_ENVIRONMENT,
+        "PENNI_MORE_IMAGE_VERSION": "  0.2.0\t",
+    }
+
+    process = production_process(
+        "from penni_more.settings import production; print(production.PENNI_MORE_VERSION_LABEL)",
+        environment=environment,
+    )
+
+    assert process.returncode == 0, process.stderr
+    assert process.stdout == "v0.2.0\n"
+
+
+def test_local_release_version_is_deterministic() -> None:
+    environment = os.environ.copy()
+    environment["PENNI_MORE_IMAGE_VERSION"] = "9.8.7"
+
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from penni_more.settings import local; print(local.PENNI_MORE_VERSION_LABEL)",
+        ],
+        cwd=BACKEND_ROOT,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert process.returncode == 0, process.stderr
+    assert process.stdout == "dev\n"
 
 
 def test_local_and_test_database_is_postgresql() -> None:

@@ -21,6 +21,7 @@ services:
     env_file: ${PENNI_MORE_ENV_FILE:-../shared/.env}
     environment:
       DJANGO_SETTINGS_MODULE: penni_more.settings.production
+      PENNI_MORE_IMAGE_VERSION: ${PENNI_MORE_IMAGE_VERSION:?PENNI_MORE_IMAGE_VERSION is required}
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp]

@@ -55,7 +55,8 @@ check_backend() {
       makemigrations --check --dry-run
   DJANGO_SETTINGS_MODULE=penni_more.settings.production \
     DJANGO_SECRET_KEY=deployment-check-only-secret-key-000000000000000000000000 \
-    PENNI_MORE_DOMAIN=example.invalid POSTGRES_PASSWORD=deployment-check-only \
+    PENNI_MORE_DOMAIN=example.invalid PENNI_MORE_IMAGE_VERSION=0.0.0 \
+    POSTGRES_PASSWORD=deployment-check-only \
     uv run --project "${script_dir}/src/backend" python "${script_dir}/src/backend/manage.py" check --deploy
 }
 

@@ -16,7 +16,10 @@
             data-testid="site-header">
       <nav class="navbar mx-auto flex-wrap gap-3 px-4 sm:max-w-6xl sm:flex-nowrap sm:px-6"
            aria-label="Primary navigation">
-        <a class="btn btn-ghost shrink-0 px-0 text-xl font-semibold" href="/">Penni More</a>
+        <div class="flex shrink-0 items-center gap-2">
+          <a class="btn btn-ghost px-0 text-xl font-semibold" href="/">Penni More</a>
+          <span class="badge badge-ghost badge-sm">{{ penni_more_version }}</span>
+        </div>
         {% if user.is_authenticated %}
           <div class="ml-auto flex min-w-0 items-center gap-2 sm:gap-4">
             <a class="btn btn-ghost btn-sm focus-visible:outline-2 focus-visible:outline-offset-2"

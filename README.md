@@ -1,11 +1,13 @@
 # Penni More
 
+[![Latest Docker image](https://img.shields.io/docker/v/gabaconrado/penni-more?sort=semver&label=latest%20image)](https://hub.docker.com/r/gabaconrado/penni-more/tags)
+
 A personal-use money manager.
 
 ## Status
 
-The repository currently contains project and Codex infrastructure only. Application source code
-has not been implemented.
+The application includes authentication and account management, with production deployment and
+local development workflows built around Podman.
 
 ## Intended stack
 

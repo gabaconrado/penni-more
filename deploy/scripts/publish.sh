@@ -26,10 +26,8 @@ validate_git_state() {
     fail "publications must originate from main"
 }
 
-require_registry_authentication() {
-  if ! podman login --get-login "${registry}" >/dev/null 2>&1; then
-    fail "Docker Hub authentication is unavailable; run podman login docker.io"
-  fi
+login_to_registry() {
+  podman login "${registry}"
 }
 
 main() {
@@ -41,7 +39,7 @@ main() {
     require_tool "${tool}"
   done
   validate_git_state
-  require_registry_authentication
+  login_to_registry
 
   "${repository_root}/penni-more.sh" check
   validate_git_state

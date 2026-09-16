@@ -5,6 +5,9 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
 repository_root="$(cd "${script_dir}/../.." && pwd)"
 readonly repository_root
+DEPLOY_SSH_TARGET="${DEPLOY_SSH_TARGET:-penni}"
+DEPLOY_REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/home/penni/penni-more}"
+readonly DEPLOY_SSH_TARGET DEPLOY_REMOTE_DIR
 
 fail() { printf 'Deployment preflight failed: %s\n' "$*" >&2; return 2; }
 
@@ -36,8 +39,6 @@ main() {
     shift
   done
   require_tool git; require_tool ssh; require_tool rsync
-  : "${DEPLOY_SSH_TARGET:?DEPLOY_SSH_TARGET is required}"
-  : "${DEPLOY_REMOTE_DIR:?DEPLOY_REMOTE_DIR is required}"
   [[ "${DEPLOY_SSH_TARGET}" =~ ^[A-Za-z0-9_.@:-]+$ ]] || fail "DEPLOY_SSH_TARGET contains unsafe characters"
   validate_remote_dir
   [[ -z "$(git -C "${repository_root}" status --porcelain)" ]] || fail "working tree is dirty"

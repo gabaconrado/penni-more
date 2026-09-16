@@ -15,6 +15,23 @@ describe("the server-rendered shell", () => {
     expect(template).toContain("flex min-h-screen flex-col");
   });
 
+  it("shows the release version beside the home link on every page", async () => {
+    const template = await readFile(templateUrl("base.html"), "utf8");
+    const authenticationConditional = template.indexOf("{% if user.is_authenticated %}");
+    const versionBadge = template.indexOf("{{ penni_more_version }}");
+
+    expect(template).toContain(
+      '<a class="btn btn-ghost px-0 text-xl font-semibold" href="/">Penni More</a>',
+    );
+    expect(template).toContain(
+      '<span class="badge badge-ghost badge-sm">{{ penni_more_version }}</span>',
+    );
+    expect(versionBadge).toBeGreaterThan(-1);
+    expect(versionBadge).toBeLessThan(authenticationConditional);
+    expect(template.match(/penni_more_version/g)).toHaveLength(1);
+    expect(template).not.toContain("<script");
+  });
+
   it("labels the home page without describing accounts as future work", async () => {
     const template = await readFile(templateUrl("home.html"), "utf8");
 
