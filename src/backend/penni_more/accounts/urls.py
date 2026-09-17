@@ -9,6 +9,7 @@ app_name = "accounts"
 urlpatterns = [
     path("", views.account_list, name="list"),
     path("new/", views.account_create, name="create"),
+    path("currencies/<int:pk>/flag.svg", views.currency_flag, name="currency-flag"),
     path("<int:pk>/", views.account_detail, name="detail"),
     path("<int:pk>/edit/", views.account_update, name="update"),
     path("<int:pk>/delete/", views.account_delete, name="delete"),

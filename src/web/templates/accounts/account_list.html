@@ -25,6 +25,7 @@
                 <th scope="col">Name</th>
                 <th scope="col">Description</th>
                 <th scope="col">Type</th>
+                <th scope="col">Currency</th>
                 <th scope="col">Access</th>
               </tr>
             </thead>
@@ -43,6 +44,19 @@
                     {% endif %}
                   </td>
                   <td>{{ account.get_account_type_display }}</td>
+                  <td>
+                    <span class="flex min-w-max items-center gap-2">
+                      {% if account.currency.flag_svg %}
+                        <img class="h-4 w-6 rounded-sm object-cover"
+                             src="{% url 'accounts:currency-flag' account.currency.pk %}"
+                             width="24"
+                             height="16"
+                             loading="lazy"
+                             alt="">
+                      {% endif %}
+                      <span><span class="font-medium">{{ account.currency.code }}</span> — {{ account.currency.name }}</span>
+                    </span>
+                  </td>
                   <td>
                     {% if account.owner_id == user.id %}
                       <span class="badge badge-primary">Owner</span>

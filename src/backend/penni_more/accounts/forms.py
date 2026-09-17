@@ -4,10 +4,11 @@ from typing import Any
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 
 from penni_more.users.models import User
 
-from .models import Account, AccountShare
+from .models import Account, AccountShare, Currency
 
 
 class AccountForm(forms.ModelForm):  # type: ignore[type-arg]
@@ -15,7 +16,16 @@ class AccountForm(forms.ModelForm):  # type: ignore[type-arg]
 
     class Meta:
         model = Account
-        fields = ("name", "description", "account_type")
+        fields = ("name", "description", "account_type", "currency")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        allowed = Currency.objects.filter(is_active=True)
+        if self.instance.pk is not None and self.instance.currency_id is not None:
+            allowed = Currency.objects.filter(Q(is_active=True) | Q(pk=self.instance.currency_id))
+        currency_field = self.fields["currency"]
+        assert isinstance(currency_field, forms.ModelChoiceField)
+        currency_field.queryset = allowed.order_by("code")
 
 
 class AccountShareForm(forms.Form):

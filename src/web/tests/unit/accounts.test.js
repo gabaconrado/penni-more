@@ -13,12 +13,22 @@ describe("the server-rendered account pages", () => {
     expect(template).toContain('class="overflow-x-auto"');
     expect(template).toContain('role="region"');
     expect(template).toContain("<table");
-    expect(template.match(/scope="col"/g)).toHaveLength(4);
+    expect(template.match(/scope="col"/g)).toHaveLength(5);
     expect(template).toContain('scope="row"');
     expect(template).toContain("{% url 'accounts:detail' account.pk %}");
     expect(template).toContain("account.owner_id == user.id");
     expect(template).toContain("No accounts yet");
     expect(template).toContain("Create your first account");
+    expect(template).toContain("{{ account.currency.code }}");
+    expect(template).toContain("{{ account.currency.name }}");
+    expect(template).toContain("{% if account.currency.flag_svg %}");
+    expect(template).toContain("{% url 'accounts:currency-flag' account.currency.pk %}");
+    expect(template).toContain('width="24"');
+    expect(template).toContain('height="16"');
+    expect(template).toContain('loading="lazy"');
+    expect(template).toContain('alt=""');
+    expect(template).not.toContain("<svg");
+    expect(template).not.toContain("data:image");
     expect(template).not.toContain("<script");
   });
 
@@ -27,6 +37,15 @@ describe("the server-rendered account pages", () => {
 
     expect(template).toContain("{{ account.owner.email }}");
     expect(template).toContain("{{ account.get_account_type_display }}");
+    expect(template).toContain("{{ account.currency.code }}");
+    expect(template).toContain("{{ account.currency.name }}");
+    expect(template).toContain("{% if account.currency.flag_svg %}");
+    expect(template).toContain("{% url 'accounts:currency-flag' account.currency.pk %}");
+    expect(template).toContain('width="24"');
+    expect(template).toContain('height="16"');
+    expect(template).toContain('alt=""');
+    expect(template).not.toContain("<svg");
+    expect(template).not.toContain("data:image");
     expect(template).toContain("No description provided.");
     expect(template).toContain("{% if is_owner %}");
     expect(template).toContain("share_form.email");
@@ -51,7 +70,7 @@ describe("the server-rendered account pages", () => {
   it("preserves bound account values and associates every field error", async () => {
     const template = await accountTemplate("account_form.html");
 
-    for (const field of ["name", "description", "account_type"]) {
+    for (const field of ["name", "description", "account_type", "currency"]) {
       expect(template).toContain(`for="{{ form.${field}.id_for_label }}"`);
       expect(template).toContain(`id="{{ form.${field}.auto_id }}_error"`);
       expect(template).toContain(`aria-describedby="{{ form.${field}.auto_id }}_error"`);
@@ -59,6 +78,10 @@ describe("the server-rendered account pages", () => {
     expect(template).toContain("form.name.value|default_if_none:''");
     expect(template).toContain("form.description.value|default_if_none:''");
     expect(template).toContain("form.account_type.value == value");
+    expect(template).toContain('form.currency.value|stringformat:"s" == value|stringformat:"s"');
+    expect(template).toContain("form.currency.field.choices");
+    expect(template).toContain('name="{{ form.currency.html_name }}"');
+    expect(template).toContain("form.currency.errors");
     expect(template).not.toContain('name="owner"');
     expect(template).not.toContain("<script");
   });

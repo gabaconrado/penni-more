@@ -10,6 +10,53 @@ from django.db import models
 from django.db.models import Q
 
 
+class Currency(models.Model):
+    """A database-managed currency available to financial accounts."""
+
+    code = models.CharField(max_length=3, unique=True)
+    name = models.CharField(max_length=100)
+    country = models.CharField(max_length=100)
+    flag_svg = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("code",)
+        verbose_name_plural = "currencies"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(code__regex=r"^[A-Z]{3}$"),
+                name="accounts_currency_code_uppercase_ascii",
+            ),
+            models.CheckConstraint(
+                condition=Q(name__regex=r"\S"),
+                name="accounts_currency_name_not_blank",
+            ),
+            models.CheckConstraint(
+                condition=Q(country__regex=r"\S"),
+                name="accounts_currency_country_not_blank",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        label = f"{self.code} — {self.name}"
+        return label if self.is_active else f"{label} (retired)"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Normalize codes for ORM writes that do not call full_clean()."""
+        self.code = self.code.strip().upper()
+        super().save(*args, **kwargs)
+
+    def full_clean(self, *args: Any, **kwargs: Any) -> None:
+        """Normalize codes before Django validates field length and uniqueness."""
+        self.code = self.code.strip().upper()
+        super().full_clean(*args, **kwargs)
+
+    def clean(self) -> None:
+        """Normalize the ISO-style code before field and constraint validation."""
+        self.code = self.code.strip().upper()
+        super().clean()
+
+
 class AccountQuerySet(models.QuerySet["Account"]):
     """Query financial accounts visible to a user."""
 
@@ -35,6 +82,11 @@ class Account(models.Model):
         on_delete=models.CASCADE,
         related_name="owned_accounts",
         editable=False,
+    )
+    currency = models.ForeignKey(
+        Currency,
+        on_delete=models.PROTECT,
+        related_name="accounts",
     )
 
     objects = AccountQuerySet.as_manager()

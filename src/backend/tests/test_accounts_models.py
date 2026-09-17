@@ -3,17 +3,181 @@
 from unittest.mock import patch
 
 import pytest
+from django import forms
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models.deletion import ProtectedError
 
 from penni_more.accounts.forms import AccountForm, AccountShareForm
-from penni_more.accounts.models import Account, AccountShare
+from penni_more.accounts.models import Account, AccountShare, Currency
 from penni_more.accounts.services import (
     AccountOwnerShareError,
     DuplicateAccountShareError,
     share_account,
 )
 from penni_more.users.models import User
+
+
+def _cad() -> Currency:
+    currency, _ = Currency.objects.get_or_create(
+        code="CAD", defaults={"name": "Canadian dollar", "country": "Canada"}
+    )
+    return currency
+
+
+@pytest.mark.django_db
+def test_currency_normalizes_code_and_has_stable_labels() -> None:
+    currency = Currency.objects.create(code=" usd ", name="US dollar", country="United States")
+
+    assert currency.code == "USD"
+    assert str(currency) == "USD — US dollar"
+
+    currency.is_active = False
+    assert str(currency) == "USD — US dollar (retired)"
+
+
+@pytest.mark.django_db
+def test_currency_validation_and_database_constraints() -> None:
+    normalized = Currency(code=" eur ", name="Euro", country="European Union")
+    normalized.full_clean()
+    assert normalized.code == "EUR"
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Currency.objects.bulk_create(
+            [Currency(code="usd", name="US dollar", country="United States")]
+        )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Currency.objects.create(code="USD", name="   ", country="United States")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Currency.objects.create(code="USD", name="US dollar", country="\t")
+
+
+@pytest.mark.django_db
+def test_currency_code_is_unique_after_normalization() -> None:
+    Currency.objects.create(code="USD", name="US dollar", country="United States")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Currency.objects.create(code=" usd ", name="Another", country="Elsewhere")
+
+
+@pytest.mark.django_db
+def test_account_requires_currency_and_protects_referenced_currency(owner: User) -> None:
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Account.objects.create(
+            name="Missing currency",
+            description="",
+            account_type=Account.Type.BANK,
+            owner=owner,
+        )
+
+    referenced = Currency.objects.create(code="USD", name="US dollar", country="United States")
+    account = Account.objects.create(
+        name="Dollar account",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=referenced,
+    )
+    with pytest.raises(ProtectedError):
+        referenced.delete()
+    assert Account.objects.filter(pk=account.pk, currency=referenced).exists()
+
+    unreferenced = Currency.objects.create(code="EUR", name="Euro", country="European Union")
+    unreferenced.delete()
+    assert not Currency.objects.filter(pk=unreferenced.pk).exists()
+
+
+@pytest.mark.django_db
+def test_account_form_currency_policy_for_create_and_edit(owner: User) -> None:
+    Currency.objects.get_or_create(
+        code="BRL", defaults={"name": "Brazilian real", "country": "Brazil"}
+    )
+    active = Currency.objects.create(code="USD", name="US dollar", country="United States")
+    current_retired = Currency.objects.create(
+        code="EUR", name="Euro", country="European Union", is_active=False
+    )
+    other_retired = Currency.objects.create(
+        code="GBP", name="Pound sterling", country="United Kingdom", is_active=False
+    )
+    account = Account.objects.create(
+        name="European",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=current_retired,
+    )
+
+    create_field = AccountForm().fields["currency"]
+    edit_field = AccountForm(instance=account).fields["currency"]
+    assert isinstance(create_field, forms.ModelChoiceField)
+    assert isinstance(edit_field, forms.ModelChoiceField)
+    assert create_field.queryset is not None
+    assert edit_field.queryset is not None
+    create_ids = list(create_field.queryset.values_list("pk", flat=True))
+    edit_codes = list(edit_field.queryset.values_list("code", flat=True))
+
+    assert active.pk in create_ids
+    assert current_retired.pk not in create_ids
+    assert edit_codes == ["BRL", "CAD", "EUR", "USD"]
+    assert current_retired.code in edit_codes
+    assert other_retired.code not in edit_codes
+
+    retained = AccountForm(
+        {
+            "name": account.name,
+            "description": "",
+            "account_type": account.account_type,
+            "currency": current_retired.pk,
+        },
+        instance=account,
+    )
+    replacement = AccountForm(
+        {
+            "name": account.name,
+            "description": "",
+            "account_type": account.account_type,
+            "currency": active.pk,
+        },
+        instance=account,
+    )
+    tampered = AccountForm(
+        {
+            "name": account.name,
+            "description": "",
+            "account_type": account.account_type,
+            "currency": other_retired.pk,
+        },
+        instance=account,
+    )
+
+    assert retained.is_valid()
+    assert replacement.is_valid()
+    assert not tampered.is_valid()
+    assert "currency" in tampered.errors
+
+
+@pytest.mark.django_db
+def test_account_form_rejects_currency_retired_before_post(owner: User) -> None:
+    currency = Currency.objects.create(code="USD", name="US dollar", country="United States")
+    displayed = AccountForm()
+    displayed_field = displayed.fields["currency"]
+    assert isinstance(displayed_field, forms.ModelChoiceField)
+    assert displayed_field.queryset is not None
+    assert currency in displayed_field.queryset
+
+    currency.is_active = False
+    currency.save(update_fields=("is_active",))
+    submitted = AccountForm(
+        {
+            "name": "Dollar",
+            "description": "",
+            "account_type": Account.Type.BANK,
+            "currency": currency.pk,
+        }
+    )
+
+    assert not submitted.is_valid()
+    assert "currency" in submitted.errors
 
 
 @pytest.fixture
@@ -28,8 +192,12 @@ def recipient() -> User:
 
 @pytest.mark.django_db
 def test_account_validation_requires_name_and_known_type(owner: User) -> None:
-    missing_name = Account(name="", description="", account_type=Account.Type.BANK, owner=owner)
-    invalid_type = Account(name="Savings", description="", account_type="cash", owner=owner)
+    missing_name = Account(
+        name="", description="", account_type=Account.Type.BANK, owner=owner, currency=_cad()
+    )
+    invalid_type = Account(
+        name="Savings", description="", account_type="cash", owner=owner, currency=_cad()
+    )
 
     with pytest.raises(ValidationError) as missing_name_error:
         missing_name.full_clean()
@@ -58,6 +226,7 @@ def test_database_rejects_blank_names_and_unknown_types(
             description="",
             account_type=account_type,
             owner=owner,
+            currency=_cad(),
         )
 
     assert not Account.objects.exists()
@@ -66,9 +235,19 @@ def test_database_rejects_blank_names_and_unknown_types(
 @pytest.mark.django_db
 def test_account_accepts_blank_description_and_duplicate_names(owner: User) -> None:
     first = Account.objects.create(
-        name="Everyday", description="", account_type=Account.Type.BANK, owner=owner
+        name="Everyday",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
-    second = Account(name="Everyday", description="", account_type=Account.Type.CARD, owner=owner)
+    second = Account(
+        name="Everyday",
+        description="",
+        account_type=Account.Type.CARD,
+        owner=owner,
+        currency=_cad(),
+    )
 
     second.full_clean()
     second.save()
@@ -86,11 +265,12 @@ def test_account_form_exposes_only_editable_information_and_rejects_whitespace_n
             "name": "   ",
             "description": "Optional",
             "account_type": Account.Type.BANK,
+            "currency": _cad().pk,
             "owner": owner.pk,
         }
     )
 
-    assert tuple(form.fields) == ("name", "description", "account_type")
+    assert tuple(form.fields) == ("name", "description", "account_type", "currency")
     assert not form.is_valid()
     assert "name" in form.errors
 
@@ -100,7 +280,11 @@ def test_account_owner_cannot_change_through_validation_or_save(
     owner: User, recipient: User
 ) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
     account.owner = recipient
 
@@ -118,7 +302,11 @@ def test_share_validation_rejects_owner_and_database_rejects_duplicate(
     owner: User, recipient: User
 ) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
     self_share = AccountShare(account=account, recipient=owner)
 
@@ -135,7 +323,11 @@ def test_share_form_resolves_case_insensitively_and_distinguishes_failures(
     owner: User, recipient: User
 ) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
 
     valid = AccountShareForm({"email": "RECIPIENT@EXAMPLE.COM"}, account=account)
@@ -159,7 +351,11 @@ def test_share_form_resolves_case_insensitively_and_distinguishes_failures(
 @pytest.mark.django_db
 def test_share_service_translates_duplicate_into_domain_error(owner: User, recipient: User) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
 
     share_account(account, recipient)
@@ -171,7 +367,11 @@ def test_share_service_translates_duplicate_into_domain_error(owner: User, recip
 @pytest.mark.django_db
 def test_share_service_rejects_account_owner_without_writing(owner: User) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
 
     with pytest.raises(AccountOwnerShareError):
@@ -185,7 +385,11 @@ def test_share_service_translates_only_losing_duplicate_integrity_error(
     owner: User, recipient: User
 ) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
     AccountShare.objects.create(account=account, recipient=recipient)
 
@@ -203,7 +407,11 @@ def test_share_service_translates_only_losing_duplicate_integrity_error(
 @pytest.mark.django_db
 def test_share_service_reraises_unrelated_integrity_error(owner: User, recipient: User) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
 
     with (
@@ -222,7 +430,11 @@ def test_share_service_reraises_unrelated_integrity_error(owner: User, recipient
 @pytest.mark.django_db
 def test_owner_and_account_deletion_cascade_owned_data(owner: User, recipient: User) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
     share = AccountShare.objects.create(account=account, recipient=recipient)
 
@@ -231,7 +443,11 @@ def test_owner_and_account_deletion_cascade_owned_data(owner: User, recipient: U
     assert not AccountShare.objects.filter(pk=share.pk).exists()
 
     other_account = Account.objects.create(
-        name="Card", description="", account_type=Account.Type.CARD, owner=owner
+        name="Card",
+        description="",
+        account_type=Account.Type.CARD,
+        owner=owner,
+        currency=_cad(),
     )
     other_share = AccountShare.objects.create(account=other_account, recipient=recipient)
     owner.delete()
@@ -243,7 +459,11 @@ def test_owner_and_account_deletion_cascade_owned_data(owner: User, recipient: U
 @pytest.mark.django_db
 def test_recipient_deletion_cascades_only_their_share(owner: User, recipient: User) -> None:
     account = Account.objects.create(
-        name="Savings", description="", account_type=Account.Type.BANK, owner=owner
+        name="Savings",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
     share = AccountShare.objects.create(account=account, recipient=recipient)
 
@@ -259,13 +479,25 @@ def test_accessible_accounts_are_distinct_filtered_and_deterministically_ordered
 ) -> None:
     other = User.objects.create_user("other@example.com", "test-password")
     second = Account.objects.create(
-        name="Same", description="", account_type=Account.Type.CARD, owner=recipient
+        name="Same",
+        description="",
+        account_type=Account.Type.CARD,
+        owner=recipient,
+        currency=_cad(),
     )
     first = Account.objects.create(
-        name="Same", description="", account_type=Account.Type.BANK, owner=owner
+        name="Same",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
     )
     unrelated = Account.objects.create(
-        name="Hidden", description="", account_type=Account.Type.BANK, owner=other
+        name="Hidden",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=other,
+        currency=_cad(),
     )
     AccountShare.objects.create(account=first, recipient=recipient)
 

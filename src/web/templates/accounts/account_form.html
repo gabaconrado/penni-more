@@ -87,6 +87,25 @@
             </ul>
           {% endif %}
         </div>
+        <div>
+          <label class="label mb-2 font-medium" for="{{ form.currency.id_for_label }}">{{ form.currency.label }}</label>
+          <select class="select w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.currency.errors %} select-error{% endif %}"
+                  name="{{ form.currency.html_name }}"
+                  id="{{ form.currency.id_for_label }}"
+                  required
+                  {% if form.currency.errors %}aria-invalid="true" aria-describedby="{{ form.currency.auto_id }}_error"{% endif %}>
+            {% for value, label in form.currency.field.choices %}
+              <option value="{{ value }}"
+                      {% if form.currency.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          {% if form.currency.errors %}
+            <ul id="{{ form.currency.auto_id }}_error"
+                class="mt-2 text-sm text-error">
+              {% for error in form.currency.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
         <div class="flex flex-wrap gap-3 pt-2">
           <button class="btn btn-primary focus-visible:outline-2 focus-visible:outline-offset-2"
                   type="submit">{% if account %}Save changes{% else %}Create account{% endif %}</button>

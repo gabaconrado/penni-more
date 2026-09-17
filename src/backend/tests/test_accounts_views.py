@@ -1,14 +1,24 @@
 """Request and authorization tests for account management."""
 
+import hashlib
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.messages import get_messages
 from django.test import Client
 from django.urls import reverse
 
-from penni_more.accounts.models import Account, AccountShare
+from penni_more.accounts.forms import AccountForm
+from penni_more.accounts.models import Account, AccountShare, Currency
 from penni_more.users.models import User
+
+
+def _cad() -> Currency:
+    currency, _ = Currency.objects.get_or_create(
+        code="CAD", defaults={"name": "Canadian dollar", "country": "Canada"}
+    )
+    return currency
 
 
 @pytest.fixture
@@ -33,6 +43,7 @@ def account(owner: User) -> Account:
         description="Household spending",
         account_type=Account.Type.BANK,
         owner=owner,
+        currency=_cad(),
     )
 
 
@@ -51,6 +62,7 @@ def login(client: Client, user: User) -> None:
         reverse("accounts:delete", args=(1,)),
         reverse("accounts:share", args=(1,)),
         reverse("accounts:revoke", args=(1, 1)),
+        reverse("accounts:currency-flag", args=(1,)),
     ],
 )
 def test_every_account_route_redirects_anonymous_users(client: Client, url: str) -> None:
@@ -65,13 +77,25 @@ def test_list_contains_only_owned_and_shared_accounts_once(
     client: Client, owner: User, recipient: User, unrelated: User
 ) -> None:
     owned = Account.objects.create(
-        name="Owned", description="", account_type=Account.Type.BANK, owner=recipient
+        name="Owned",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=recipient,
+        currency=_cad(),
     )
     shared = Account.objects.create(
-        name="Shared", description="", account_type=Account.Type.CARD, owner=owner
+        name="Shared",
+        description="",
+        account_type=Account.Type.CARD,
+        owner=owner,
+        currency=_cad(),
     )
     hidden = Account.objects.create(
-        name="Hidden", description="", account_type=Account.Type.BANK, owner=unrelated
+        name="Hidden",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=unrelated,
+        currency=_cad(),
     )
     AccountShare.objects.create(account=shared, recipient=recipient)
     login(client, recipient)
@@ -95,6 +119,7 @@ def test_create_assigns_request_user_and_ignores_submitted_owner(
             "name": "Travel card",
             "description": "Trips",
             "account_type": Account.Type.CARD,
+            "currency": _cad().pk,
             "owner": unrelated.pk,
         },
     )
@@ -114,7 +139,12 @@ def test_invalid_create_renders_bound_errors_without_persisting(
 
     response = client.post(
         reverse("accounts:create"),
-        {"name": "   ", "description": "Kept", "account_type": "cash"},
+        {
+            "name": "   ",
+            "description": "Kept",
+            "account_type": "cash",
+            "currency": _cad().pk,
+        },
     )
 
     assert response.status_code == 200
@@ -172,6 +202,7 @@ def test_rendered_account_and_email_content_is_escaped(client: Client) -> None:
         description=unsafe_description,
         account_type=Account.Type.BANK,
         owner=owner,
+        currency=_cad(),
     )
     login(client, owner)
 
@@ -201,6 +232,7 @@ def test_list_queries_are_bounded_with_multiple_accounts(
             description="",
             account_type=Account.Type.BANK,
             owner=owner,
+            currency=_cad(),
         )
         AccountShare.objects.create(account=account, recipient=recipient)
     login(client, recipient)
@@ -273,6 +305,7 @@ def test_update_changes_only_account_information(
             "name": "Renamed",
             "description": "Changed",
             "account_type": Account.Type.CARD,
+            "currency": _cad().pk,
         },
     )
 
@@ -285,6 +318,173 @@ def test_update_changes_only_account_information(
     )
     assert response.status_code == 302
     assert response.headers["Location"] == reverse("accounts:detail", args=(account.pk,))
+
+
+@pytest.mark.django_db
+def test_update_allows_current_retired_currency_but_rejects_another(
+    client: Client, account: Account, owner: User
+) -> None:
+    current = account.currency
+    current.is_active = False
+    current.save(update_fields=("is_active",))
+    other = Currency.objects.create(
+        code="USD", name="US dollar", country="United States", is_active=False
+    )
+    login(client, owner)
+    url = reverse("accounts:update", args=(account.pk,))
+    data = {
+        "name": account.name,
+        "description": account.description,
+        "account_type": account.account_type,
+        "currency": current.pk,
+    }
+
+    retained = client.post(url, data)
+    rejected = client.post(url, {**data, "currency": other.pk})
+
+    assert retained.status_code == 302
+    assert rejected.status_code == 200
+    assert "currency" in rejected.context["form"].errors
+    account.refresh_from_db()
+    assert account.currency == current
+
+
+@pytest.mark.django_db
+def test_update_rechecks_replacement_retired_after_form_validation(
+    client: Client, account: Account, owner: User
+) -> None:
+    original_currency = account.currency
+    replacement = Currency.objects.create(code="USD", name="US dollar", country="United States")
+    login(client, owner)
+    original_is_valid = AccountForm.is_valid
+
+    def validate_then_retire(form: AccountForm) -> bool:
+        is_valid = original_is_valid(form)
+        assert is_valid
+        Currency.objects.filter(pk=replacement.pk).update(is_active=False)
+        return is_valid
+
+    with patch.object(AccountForm, "is_valid", validate_then_retire):
+        response = client.post(
+            reverse("accounts:update", args=(account.pk,)),
+            {
+                "name": "Should not persist",
+                "description": account.description,
+                "account_type": account.account_type,
+                "currency": replacement.pk,
+            },
+        )
+
+    assert response.status_code == 200
+    assert "currency" in response.context["form"].errors
+    account.refresh_from_db()
+    assert account.name == "Everyday account"
+    assert account.currency == original_currency
+
+
+@pytest.mark.django_db
+def test_create_rejects_retired_currency(client: Client, owner: User) -> None:
+    retired = Currency.objects.create(
+        code="USD", name="US dollar", country="United States", is_active=False
+    )
+    login(client, owner)
+
+    response = client.post(
+        reverse("accounts:create"),
+        {
+            "name": "Dollar",
+            "description": "",
+            "account_type": Account.Type.BANK,
+            "currency": retired.pk,
+        },
+    )
+
+    assert response.status_code == 200
+    assert "currency" in response.context["form"].errors
+    assert not Account.objects.filter(name="Dollar").exists()
+
+
+@pytest.mark.django_db
+def test_create_rechecks_currency_retired_after_form_validation(
+    client: Client, owner: User
+) -> None:
+    currency = Currency.objects.create(code="USD", name="US dollar", country="United States")
+    login(client, owner)
+    original_is_valid = AccountForm.is_valid
+
+    def validate_then_retire(form: AccountForm) -> bool:
+        is_valid = original_is_valid(form)
+        assert is_valid
+        Currency.objects.filter(pk=currency.pk).update(is_active=False)
+        return is_valid
+
+    with patch.object(AccountForm, "is_valid", validate_then_retire):
+        response = client.post(
+            reverse("accounts:create"),
+            {
+                "name": "Raced retirement",
+                "description": "",
+                "account_type": Account.Type.BANK,
+                "currency": currency.pk,
+            },
+        )
+
+    assert response.status_code == 200
+    assert "currency" in response.context["form"].errors
+    assert not Account.objects.filter(name="Raced retirement").exists()
+
+
+@pytest.mark.django_db
+def test_currency_flag_returns_contained_svg_with_deterministic_headers(
+    client: Client, owner: User
+) -> None:
+    currency = Currency.objects.get(code="CAD")
+    login(client, owner)
+
+    response = client.get(reverse("accounts:currency-flag", args=(currency.pk,)))
+    body = currency.flag_svg.encode()
+
+    assert response.status_code == 200
+    assert response.content == body
+    assert response.headers["Content-Type"] == "image/svg+xml; charset=utf-8"
+    assert response.headers["Content-Disposition"] == 'inline; filename="CAD-flag.svg"'
+    assert response.headers["Content-Security-Policy"] == "default-src 'none'; sandbox"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+    assert response.headers["Cache-Control"] == "private, max-age=300"
+    assert response.headers["ETag"] == f'"{hashlib.sha256(body).hexdigest()}"'
+
+
+@pytest.mark.django_db
+def test_currency_flag_returns_404_for_unknown_or_empty_and_rejects_post(
+    client: Client, owner: User
+) -> None:
+    empty = Currency.objects.create(code="USD", name="US dollar", country="United States")
+    login(client, owner)
+
+    missing = client.get(reverse("accounts:currency-flag", args=(999999,)))
+    empty_response = client.get(reverse("accounts:currency-flag", args=(empty.pk,)))
+    post = client.post(reverse("accounts:currency-flag", args=(empty.pk,)))
+
+    assert missing.status_code == 404
+    assert empty_response.status_code == 404
+    assert post.status_code == 405
+
+
+@pytest.mark.django_db
+def test_stored_svg_is_not_inserted_inline_in_account_html(
+    client: Client, account: Account, owner: User
+) -> None:
+    login(client, owner)
+
+    responses = [
+        client.get(reverse("accounts:list")),
+        client.get(reverse("accounts:detail", args=(account.pk,))),
+        client.get(reverse("accounts:update", args=(account.pk,))),
+    ]
+
+    assert all(response.status_code == 200 for response in responses)
+    assert all(account.currency.flag_svg.encode() not in response.content for response in responses)
 
 
 @pytest.mark.django_db
@@ -345,7 +545,11 @@ def test_revoke_requires_matching_nested_share_and_owner(
     client: Client, account: Account, owner: User, recipient: User
 ) -> None:
     other_account = Account.objects.create(
-        name="Other", description="", account_type=Account.Type.CARD, owner=owner
+        name="Other",
+        description="",
+        account_type=Account.Type.CARD,
+        owner=owner,
+        currency=_cad(),
     )
     share = AccountShare.objects.create(account=other_account, recipient=recipient)
     login(client, owner)
