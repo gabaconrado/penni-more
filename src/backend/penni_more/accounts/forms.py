@@ -26,6 +26,11 @@ class AccountForm(forms.ModelForm):  # type: ignore[type-arg]
         currency_field = self.fields["currency"]
         assert isinstance(currency_field, forms.ModelChoiceField)
         currency_field.queryset = allowed.order_by("code")
+        if self.instance.pk is not None and self.instance.has_transactions():
+            self.fields["account_type"].disabled = True
+            self.fields[
+                "account_type"
+            ].help_text = "Account type cannot change after transactions exist."
 
 
 class AccountShareForm(forms.Form):

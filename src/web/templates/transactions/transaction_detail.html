@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{{ transaction.name }} | Transactions | Penni More{% endblock %}
+{% block content %}
+  <section aria-labelledby="page-title">
+    <nav class="mb-6 text-sm" aria-label="Breadcrumb">
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'transactions:list' %}">Transactions</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{{ transaction.name }}</span>
+    </nav>
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <p class="mb-2 text-sm font-semibold tracking-wide text-base-content/70 uppercase">
+          {{ transaction.get_transaction_type_display }}
+        </p>
+        <h1 id="page-title"
+            class="break-words text-3xl font-bold tracking-tight sm:text-4xl">
+          {{ transaction.name }}
+        </h1>
+      </div>
+      {% if can_edit or can_delete %}
+        <div class="flex flex-wrap gap-2">
+          {% if can_edit %}
+            <a class="btn btn-outline focus-visible:outline-2 focus-visible:outline-offset-2"
+               href="{% url 'transactions:update' transaction.pk %}">Edit transaction</a>
+          {% endif %}
+          {% if can_delete %}
+            <a class="btn btn-error btn-outline focus-visible:outline-2 focus-visible:outline-offset-2"
+               href="{% url 'transactions:delete' transaction.pk %}">Delete transaction</a>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+    {% if is_future %}
+      <div class="alert alert-info mt-6" role="status">
+        <span>This future-dated transaction will not affect current balances until its date.</span>
+      </div>
+    {% endif %}
+    <div class="mt-8 rounded-box border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8">
+      <h2 class="text-xl font-semibold">Transaction information</h2>
+      <dl class="mt-6 grid gap-6 sm:grid-cols-2">
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Type</dt>
+          <dd class="mt-1">
+            {{ transaction.get_transaction_type_display }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Amount</dt>
+          <dd class="mt-1 font-mono">
+            {{ transaction.amount|floatformat:2 }} {{ transaction.amount_currency_code }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Category</dt>
+          <dd class="mt-1">
+            {{ transaction.category.name }}
+            {% if not transaction.category.is_active %}<span class="badge badge-ghost badge-sm">Inactive</span>{% endif %}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Date</dt>
+          <dd class="mt-1">
+            {{ transaction.date|date:"Y-m-d" }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">
+            {% if transaction.transaction_type == "transfer" %}Source account{% else %}Account{% endif %}
+          </dt>
+          <dd class="mt-1">
+            {% if presentation.source.is_private %}
+              Private account
+            {% elif presentation.source.url %}
+              <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+                 href="{{ presentation.source.url }}">{{ presentation.source.name }}</a>
+            {% else %}
+              {{ presentation.source.name }}
+            {% endif %}
+          </dd>
+        </div>
+        {% if presentation.target %}
+          <div>
+            <dt class="text-sm font-medium text-base-content/65">Target account</dt>
+            <dd class="mt-1">
+              {% if presentation.target.is_private %}
+                Private account
+              {% elif presentation.target.url %}
+                <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+                   href="{{ presentation.target.url }}">{{ presentation.target.name }}</a>
+              {% else %}
+                {{ presentation.target.name }}
+              {% endif %}
+            </dd>
+          </div>
+        {% endif %}
+        <div class="sm:col-span-2">
+          <dt class="text-sm font-medium text-base-content/65">Description</dt>
+          <dd class="mt-1 whitespace-pre-wrap break-words">{% if transaction.description %}{{ transaction.description }}{% else %}<span class="text-base-content/60">No description provided.</span>{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Created by</dt>
+          <dd class="mt-1 break-all">
+            {{ transaction.created_by.email }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Created</dt>
+          <dd class="mt-1">
+            {{ transaction.created_at|date:"Y-m-d H:i:s" }} UTC
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Last updated</dt>
+          <dd class="mt-1">
+            {{ transaction.updated_at|date:"Y-m-d H:i:s" }} UTC
+          </dd>
+        </div>
+      </dl>
+    </div>
+    <div class="mt-8 rounded-box border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8">
+      <h2 class="text-xl font-semibold">Additional data</h2>
+      {% if additional_data_pairs %}
+        <dl class="mt-6 grid gap-4 sm:grid-cols-2">
+          {% for key, value in additional_data_pairs %}
+            <div class="min-w-0">
+              <dt class="break-words text-sm font-medium text-base-content/65">{{ key }}</dt>
+              <dd class="mt-1 break-words">
+                {{ value }}
+              </dd>
+            </div>
+          {% endfor %}
+        </dl>
+      {% else %}
+        <p class="mt-2 text-base-content/70">No additional data provided.</p>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

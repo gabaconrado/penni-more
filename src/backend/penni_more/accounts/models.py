@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
+from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -90,6 +92,7 @@ class Account(models.Model):
     )
 
     objects = AccountQuerySet.as_manager()
+    current_balance: Decimal
 
     class Meta:
         constraints = [
@@ -107,13 +110,16 @@ class Account(models.Model):
         return self.name
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        """Preserve immutable ownership even when callers omit validation."""
+        """Preserve ownership and ledger-defined type semantics on direct writes."""
         if not self._state.adding and self.pk is not None:
-            original_owner_id = (
-                type(self).objects.values_list("owner_id", flat=True).get(pk=self.pk)
-            )
+            original = type(self).objects.only("owner_id", "account_type").get(pk=self.pk)
+            original_owner_id = original.owner_id
             if self.owner_id != original_owner_id:
                 raise ValidationError({"owner": "An account's owner cannot be changed."})
+            if self.account_type != original.account_type and self.has_transactions():
+                raise ValidationError(
+                    {"account_type": "Account type cannot change after transactions exist."}
+                )
         super().save(*args, **kwargs)
 
     def clean(self) -> None:
@@ -125,6 +131,22 @@ class Account(models.Model):
             )
             if self.owner_id != original_owner_id:
                 raise ValidationError({"owner": "An account's owner cannot be changed."})
+            original_type = (
+                type(self).objects.values_list("account_type", flat=True).get(pk=self.pk)
+            )
+            if self.account_type != original_type and self.has_transactions():
+                raise ValidationError(
+                    {"account_type": "Account type cannot change after transactions exist."}
+                )
+
+    def has_transactions(self) -> bool:
+        """Return whether this account participates in the installed ledger."""
+        transaction_model = apps.get_model("transactions", "Transaction")
+        return bool(
+            transaction_model.objects.filter(
+                Q(account_id=self.pk) | Q(target_account_id=self.pk)
+            ).exists()
+        )
 
 
 class AccountShare(models.Model):

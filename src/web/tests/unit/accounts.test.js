@@ -13,7 +13,7 @@ describe("the server-rendered account pages", () => {
     expect(template).toContain('class="overflow-x-auto"');
     expect(template).toContain('role="region"');
     expect(template).toContain("<table");
-    expect(template.match(/scope="col"/g)).toHaveLength(5);
+    expect(template.match(/scope="col"/g)).toHaveLength(6);
     expect(template).toContain('scope="row"');
     expect(template).toContain("{% url 'accounts:detail' account.pk %}");
     expect(template).toContain("account.owner_id == user.id");
@@ -21,6 +21,9 @@ describe("the server-rendered account pages", () => {
     expect(template).toContain("Create your first account");
     expect(template).toContain("{{ account.currency.code }}");
     expect(template).toContain("{{ account.currency.name }}");
+    expect(template).toContain("{{ account.current_balance|floatformat:2 }}");
+    expect(template).toContain("Amount owed");
+    expect(template).not.toContain("CSV account ID");
     expect(template).toContain("{% if account.currency.flag_svg %}");
     expect(template).toContain("{% url 'accounts:currency-flag' account.currency.pk %}");
     expect(template).toContain('width="24"');
@@ -47,6 +50,13 @@ describe("the server-rendered account pages", () => {
     expect(template).not.toContain("<svg");
     expect(template).not.toContain("data:image");
     expect(template).toContain("No description provided.");
+    expect(template).toContain("{{ current_balance|floatformat:2 }}");
+    expect(template).toContain("Current amount owed");
+    expect(template).toContain("CSV account ID");
+    expect(template).toContain("{{ csv_account_id }}");
+    expect(template).toContain("{% if can_delete_account %}");
+    expect(template).toContain("{% if has_transactions and is_owner %}");
+    expect(template).toContain("source account owner to delete that transfer");
     expect(template).toContain("{% if is_owner %}");
     expect(template).toContain("share_form.email");
     expect(template).toContain("{{ share.recipient.email }}");
@@ -78,6 +88,9 @@ describe("the server-rendered account pages", () => {
     expect(template).toContain("form.name.value|default_if_none:''");
     expect(template).toContain("form.description.value|default_if_none:''");
     expect(template).toContain("form.account_type.value == value");
+    expect(template).toContain("{% if account_type_locked %}");
+    expect(template).toContain("Account type cannot be changed");
+    expect(template).toContain("only the source account owner can edit or delete");
     expect(template).toContain('form.currency.value|stringformat:"s" == value|stringformat:"s"');
     expect(template).toContain("form.currency.field.choices");
     expect(template).toContain('name="{{ form.currency.html_name }}"');
@@ -89,6 +102,9 @@ describe("the server-rendered account pages", () => {
   it("requires an explicit CSRF-protected POST to permanently delete", async () => {
     const template = await accountTemplate("account_confirm_delete.html");
 
+    expect(template).toContain("{% if has_transactions %}");
+    expect(template).toContain("cannot be deleted because it has transaction history");
+    expect(template).toMatch(/ask the\s+source account owner to delete that transfer/);
     expect(template).toContain("cannot be undone");
     expect(template).toContain('method="post"');
     expect(template).toContain("{% csrf_token %}");

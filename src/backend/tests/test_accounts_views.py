@@ -237,7 +237,7 @@ def test_list_queries_are_bounded_with_multiple_accounts(
         AccountShare.objects.create(account=account, recipient=recipient)
     login(client, recipient)
 
-    with django_assert_num_queries(3):
+    with django_assert_num_queries(4):
         response = client.get(reverse("accounts:list"))
 
     assert response.status_code == 200
@@ -255,7 +255,7 @@ def test_owner_detail_queries_are_bounded_with_multiple_shares(
         AccountShare.objects.create(account=account, recipient=recipient)
     login(client, owner)
 
-    with django_assert_num_queries(4):
+    with django_assert_num_queries(6):
         response = client.get(reverse("accounts:detail", args=(account.pk,)))
 
     assert response.status_code == 200

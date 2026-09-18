@@ -10,6 +10,7 @@ from .users.forms import EmailAuthenticationForm
 urlpatterns = [
     path("", views.home, name="home"),
     path("accounts/", include("penni_more.accounts.urls")),
+    path("transactions/", include("penni_more.transactions.urls")),
     path(
         "login/",
         auth_views.LoginView.as_view(authentication_form=EmailAuthenticationForm),

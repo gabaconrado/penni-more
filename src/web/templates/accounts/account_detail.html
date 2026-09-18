@@ -22,8 +22,15 @@
         <div class="flex flex-wrap gap-2">
           <a class="btn btn-outline focus-visible:outline-2 focus-visible:outline-offset-2"
              href="{% url 'accounts:update' account.pk %}">Edit account</a>
-          <a class="btn btn-error btn-outline focus-visible:outline-2 focus-visible:outline-offset-2"
-             href="{% url 'accounts:delete' account.pk %}">Delete account</a>
+          {% if can_delete_account %}
+            <a class="btn btn-error btn-outline focus-visible:outline-2 focus-visible:outline-offset-2"
+               href="{% url 'accounts:delete' account.pk %}">Delete account</a>
+          {% else %}
+            <span class="tooltip"
+                  data-tip="Delete this account's transactions before deleting the account.">
+              <span class="btn btn-error btn-outline btn-disabled" aria-disabled="true">Delete account</span>
+            </span>
+          {% endif %}
         </div>
       {% endif %}
     </div>
@@ -60,6 +67,23 @@
           <dd class="mt-1">{% if is_owner %}Owner{% else %}Shared{% endif %}</dd>
         </div>
         <div>
+          <dt class="text-sm font-medium text-base-content/65">
+            {% if account.account_type == "card" %}Current amount owed{% else %}Current balance{% endif %}
+          </dt>
+          <dd class="mt-1 font-mono">
+            {{ current_balance|floatformat:2 }} {{ account.currency.code }}
+          </dd>
+          <p class="mt-1 text-xs text-base-content/60">
+            Calculated from transactions dated through today (UTC).
+          </p>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">CSV account ID</dt>
+          <dd class="mt-1 font-mono">
+            {{ csv_account_id }}
+          </dd>
+        </div>
+        <div>
           <dt class="text-sm font-medium text-base-content/65">Owner</dt>
           <dd class="mt-1 break-all">
             {{ account.owner.email }}
@@ -70,6 +94,15 @@
           <dd class="mt-1 whitespace-pre-wrap break-words">{% if account.description %}{{ account.description }}{% else %}<span class="text-base-content/60">No description provided.</span>{% endif %}</dd>
         </div>
       </dl>
+      {% if has_transactions and is_owner %}
+        <div class="alert alert-info mt-6" role="status">
+          <span>
+            This account has transaction history. Its type cannot be changed and the account cannot
+            be deleted until every transaction involving it is deleted. If this account is the
+            target of a transfer, you may need the source account owner to delete that transfer.
+          </span>
+        </div>
+      {% endif %}
     </div>
   </section>
   {% if is_owner %}

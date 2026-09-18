@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Bulk import transactions | Penni More{% endblock %}
+{% block content %}
+  <section class="mx-auto w-full max-w-3xl" aria-labelledby="page-title">
+    <nav class="mb-6 text-sm" aria-label="Breadcrumb">
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'transactions:list' %}">Transactions</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">Bulk import CSV</span>
+    </nav>
+    <div class="rounded-box border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8">
+      <h1 id="page-title" class="text-3xl font-bold tracking-tight">Bulk import transactions</h1>
+      <p class="mt-3 text-base-content/70">
+        Upload a CSV to validate and preview every row before importing. Previewing never creates
+        transactions.
+      </p>
+      <div class="mt-6 rounded-box bg-base-200 p-5">
+        <h2 class="font-semibold">CSV requirements</h2>
+        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-base-content/80">
+          <li>UTF-8, no larger than 1 MiB, with at most 1,000 nonblank data rows.</li>
+          <li><code>type</code> is exactly <code>expense</code>, <code>income</code>, or <code>transfer</code> in lowercase.</li>
+          <li>
+            <code>account_id</code> is the CSV account ID shown on account details and must identify
+            an account you own. For a transfer, it is the source and must be a bank account.
+          </li>
+          <li>
+            <code>target_account_id</code> is required for transfers and identifies a distinct bank
+            or card account you can access in the same currency. Leave it blank for expenses and
+            income.
+          </li>
+          <li>
+            <code>date</code> uses exactly YYYY-MM-DD. <code>amount</code> is positive, has exactly
+            two decimal places, and contains no sign or currency symbol.
+          </li>
+          <li>
+            <code>category</code> matches an active admin-managed category name without regard to
+            capitalization.
+          </li>
+          <li>
+            <code>additional_data</code> is blank or a flat JSON object of text keys and text values;
+            arrays, nested objects, and non-text values are not accepted.
+          </li>
+        </ul>
+        <p class="mt-4 text-sm font-medium">Required header, in this exact order:</p>
+        <code class="mt-2 block overflow-x-auto rounded bg-base-300 p-3 text-xs">type,name,description,category,date,amount,account_id,target_account_id,additional_data</code>
+      </div>
+      {% if form.errors or file_errors or confirmation_form.errors %}
+        <div class="alert alert-error mt-6"
+             role="alert"
+             aria-labelledby="import-error-title">
+          <div>
+            <h2 id="import-error-title" class="font-semibold">We could not preview this CSV</h2>
+            {% if form.non_field_errors %}
+              <ul class="mt-1 list-disc pl-5">
+                {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+            {% if file_errors %}
+              <ul class="mt-1 list-disc pl-5">
+                {% for error in file_errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+            {% if confirmation_form.non_field_errors %}
+              <ul class="mt-1 list-disc pl-5">
+                {% for error in confirmation_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+      <form class="mt-6"
+            method="post"
+            enctype="multipart/form-data"
+            action="{% url 'transactions:import' %}">
+        {% csrf_token %}
+        <div>
+          <label class="label mb-2 font-medium" for="{{ form.csv_file.id_for_label }}">{{ form.csv_file.label }}</label>
+          <input class="file-input w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.csv_file.errors %} file-input-error{% endif %}"
+                 type="file"
+                 name="{{ form.csv_file.html_name }}"
+                 id="{{ form.csv_file.id_for_label }}"
+                 accept=".csv,text/csv"
+                 required
+                 aria-describedby="csv-file-help{% if form.csv_file.errors %} {{ form.csv_file.auto_id }}_error{% endif %}"
+                 {% if form.csv_file.errors %}aria-invalid="true"{% endif %}>
+          <p id="csv-file-help" class="mt-2 text-sm text-base-content/70">
+            Select one UTF-8 CSV file. Validation is all-or-nothing.
+          </p>
+          {% if form.csv_file.errors %}
+            <ul id="{{ form.csv_file.auto_id }}_error"
+                class="mt-2 text-sm text-error">
+              {% for error in form.csv_file.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div class="mt-6 flex flex-wrap gap-3">
+          <button class="btn btn-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+                  type="submit">Validate and preview CSV</button>
+          <a class="btn btn-ghost focus-visible:outline-2 focus-visible:outline-offset-2"
+             href="{% url 'transactions:list' %}">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

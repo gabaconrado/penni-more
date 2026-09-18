@@ -9,6 +9,8 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from penni_more.transactions.services import balances_for_accounts
+
 from .forms import AccountForm, AccountShareForm
 from .models import Account, AccountShare, Currency
 from .services import DuplicateAccountShareError, revoke_account_share, share_account
@@ -24,7 +26,7 @@ def _save_account_with_locked_currency(
         if form.instance.pk is not None:
             persisted_account = (
                 Account.objects.select_for_update()
-                .only("currency_id")
+                .only("currency_id", "account_type")
                 .filter(pk=form.instance.pk)
                 .first()
             )
@@ -32,6 +34,14 @@ def _save_account_with_locked_currency(
                 form.add_error(None, "This account no longer exists.")
                 return None
             current_currency_id = persisted_account.currency_id
+            if (
+                form.instance.account_type != persisted_account.account_type
+                and persisted_account.has_transactions()
+            ):
+                form.add_error(
+                    "account_type", "Account type cannot change after transactions exist."
+                )
+                return None
 
         locked_currency = (
             Currency.objects.select_for_update().filter(pk=selected_currency.pk).first()
@@ -55,7 +65,16 @@ def _owned_account(request: HttpRequest, pk: int) -> Account:
 
 
 def _detail_context(account: Account, *, is_owner: bool) -> dict[str, object]:
-    context: dict[str, object] = {"account": account, "is_owner": is_owner}
+    has_transactions = account.has_transactions()
+    context: dict[str, object] = {
+        "account": account,
+        "is_owner": is_owner,
+        "current_balance": balances_for_accounts([account])[account.pk],
+        "csv_account_id": account.pk,
+        "has_transactions": has_transactions,
+        "account_type_locked": has_transactions,
+        "can_delete_account": is_owner and not has_transactions,
+    }
     if is_owner:
         context["share_form"] = AccountShareForm(account=account)
         context["shares"] = account.shares.select_related("recipient").order_by(
@@ -67,7 +86,10 @@ def _detail_context(account: Account, *, is_owner: bool) -> dict[str, object]:
 @require_GET
 def account_list(request: HttpRequest) -> HttpResponse:
     """List each account accessible to the current user."""
-    accounts = Account.objects.accessible_to(request.user).select_related("owner", "currency")
+    accounts = list(Account.objects.accessible_to(request.user).select_related("owner", "currency"))
+    balances = balances_for_accounts(accounts)
+    for account in accounts:
+        account.current_balance = balances[account.pk]
     return render(request, "accounts/account_list.html", {"accounts": accounts})
 
 
@@ -109,7 +131,12 @@ def account_update(request: HttpRequest, pk: int) -> HttpResponse:
     return render(
         request,
         "accounts/account_form.html",
-        {"account": account, "form": form, "mode": "edit"},
+        {
+            "account": account,
+            "form": form,
+            "mode": "edit",
+            "account_type_locked": account.has_transactions(),
+        },
     )
 
 
@@ -118,10 +145,35 @@ def account_delete(request: HttpRequest, pk: int) -> HttpResponse:
     """Confirm and permanently delete an owned account."""
     account = _owned_account(request, pk)
     if request.method == "POST":
-        account.delete()
+        with transaction.atomic():
+            locked = get_object_or_404(Account.objects.select_for_update(), pk=account.pk)
+            if locked.has_transactions():
+                messages.error(
+                    request,
+                    "Delete this account's transactions before deleting the account.",
+                )
+                return render(
+                    request,
+                    "accounts/account_confirm_delete.html",
+                    {
+                        "account": account,
+                        "has_transactions": True,
+                        "can_delete_account": False,
+                    },
+                )
+            locked.delete()
         messages.success(request, "Account deleted.")
         return redirect("accounts:list")
-    return render(request, "accounts/account_confirm_delete.html", {"account": account})
+    has_transactions = account.has_transactions()
+    return render(
+        request,
+        "accounts/account_confirm_delete.html",
+        {
+            "account": account,
+            "has_transactions": has_transactions,
+            "can_delete_account": not has_transactions,
+        },
+    )
 
 
 @require_POST

@@ -26,6 +26,7 @@
                 <th scope="col">Description</th>
                 <th scope="col">Type</th>
                 <th scope="col">Currency</th>
+                <th scope="col">Current balance</th>
                 <th scope="col">Access</th>
               </tr>
             </thead>
@@ -56,6 +57,12 @@
                       {% endif %}
                       <span><span class="font-medium">{{ account.currency.code }}</span> — {{ account.currency.name }}</span>
                     </span>
+                  </td>
+                  <td>
+                    <span class="font-mono whitespace-nowrap">{{ account.current_balance|floatformat:2 }} {{ account.currency.code }}</span>
+                    {% if account.account_type == "card" %}
+                      <span class="block text-xs text-base-content/60">Amount owed</span>
+                    {% endif %}
                   </td>
                   <td>
                     {% if account.owner_id == user.id %}

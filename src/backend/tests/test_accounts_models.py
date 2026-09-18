@@ -1,11 +1,12 @@
 """Persistence, form, and service tests for financial accounts."""
 
+from threading import Event, Thread
 from unittest.mock import patch
 
 import pytest
 from django import forms
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
 from django.db.models.deletion import ProtectedError
 
 from penni_more.accounts.forms import AccountForm, AccountShareForm
@@ -13,6 +14,7 @@ from penni_more.accounts.models import Account, AccountShare, Currency
 from penni_more.accounts.services import (
     AccountOwnerShareError,
     DuplicateAccountShareError,
+    revoke_account_share,
     share_account,
 )
 from penni_more.users.models import User
@@ -378,6 +380,44 @@ def test_share_service_rejects_account_owner_without_writing(owner: User) -> Non
         share_account(account, owner)
 
     assert not AccountShare.objects.filter(account=account).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_share_revocation_uses_account_lock_protocol(owner: User, recipient: User) -> None:
+    account = Account.objects.create(
+        name="Shared bank",
+        description="",
+        account_type=Account.Type.BANK,
+        owner=owner,
+        currency=_cad(),
+    )
+    share = AccountShare.objects.create(account=account, recipient=recipient)
+    started = Event()
+    finished = Event()
+    errors: list[Exception] = []
+
+    def revoke_in_other_connection() -> None:
+        close_old_connections()
+        started.set()
+        try:
+            revoke_account_share(Account.objects.get(pk=account.pk), share.pk)
+        except Exception as error:  # pragma: no cover - asserted below
+            errors.append(error)
+        finally:
+            close_old_connections()
+            finished.set()
+
+    worker = Thread(target=revoke_in_other_connection)
+    with transaction.atomic():
+        Account.objects.select_for_update().get(pk=account.pk)
+        worker.start()
+        assert started.wait(timeout=2)
+        assert not finished.wait(timeout=0.2)
+    worker.join(timeout=2)
+
+    assert finished.is_set()
+    assert errors == []
+    assert not AccountShare.objects.filter(pk=share.pk).exists()
 
 
 @pytest.mark.django_db

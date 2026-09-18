@@ -35,5 +35,11 @@ def share_account(account: Account, recipient: User) -> AccountShare:
 
 
 def revoke_account_share(account: Account, share_id: int) -> None:
-    """Remove a share only when it belongs to the nested account."""
-    AccountShare.objects.filter(account=account, pk=share_id).delete()
+    """Remove a share while serializing with account-authorized ledger writes."""
+    with transaction.atomic():
+        locked_account = Account.objects.select_for_update().get(pk=account.pk)
+        (
+            AccountShare.objects.select_for_update()
+            .filter(account=locked_account, pk=share_id)
+            .delete()
+        )

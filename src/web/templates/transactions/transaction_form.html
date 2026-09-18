@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "edit" %}Edit {{ transaction.name }}{% else %}Add transaction{% endif %} | Penni More{% endblock %}
+{% block content %}
+  <section class="mx-auto w-full max-w-3xl" aria-labelledby="page-title">
+    <nav class="mb-6 text-sm" aria-label="Breadcrumb">
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'transactions:list' %}">Transactions</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">{% if mode == "edit" %}Edit transaction{% else %}Add transaction{% endif %}</span>
+    </nav>
+    <div class="rounded-box border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8">
+      <h1 id="page-title" class="text-3xl font-bold tracking-tight">
+        {% if mode == "edit" %}Edit transaction{% else %}Add transaction{% endif %}
+      </h1>
+      <p class="mt-3 text-base-content/70">
+        Enter a positive amount. The transaction type and account type determine its balance effect.
+      </p>
+      {% if form.errors %}
+        <div class="alert alert-error mt-6"
+             role="alert"
+             aria-labelledby="form-error-title">
+          <div>
+            <h2 id="form-error-title" class="font-semibold">Please correct the errors below</h2>
+            {% if form.non_field_errors %}
+              <ul class="mt-1 list-disc pl-5">
+                {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+      <form method="post" class="mt-6 space-y-5">
+        {% csrf_token %}
+        <div>
+          <label class="label mb-2 font-medium"
+                 for="{{ form.transaction_type.id_for_label }}">{{ form.transaction_type.label }}</label>
+          <select class="select w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.transaction_type.errors %} select-error{% endif %}"
+                  name="{{ form.transaction_type.html_name }}"
+                  id="{{ form.transaction_type.id_for_label }}"
+                  required
+                  aria-describedby="transaction-type-help{% if form.transaction_type.errors %} {{ form.transaction_type.auto_id }}_error{% endif %}"
+                  {% if form.transaction_type.errors %}aria-invalid="true"{% endif %}>
+            {% for value, label in form.transaction_type.field.choices %}
+              <option value="{{ value }}"
+                      {% if form.transaction_type.value == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p id="transaction-type-help" class="mt-2 text-sm text-base-content/70">
+            Expenses use bank or card accounts. Income requires a bank account. Transfers require a
+            bank source and a separate bank or card target in the same currency.
+          </p>
+          {% if form.transaction_type.errors %}
+            <ul id="{{ form.transaction_type.auto_id }}_error"
+                class="mt-2 text-sm text-error">
+              {% for error in form.transaction_type.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div>
+          <label class="label mb-2 font-medium" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+          <input class="input w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.name.errors %} input-error{% endif %}"
+                 type="text"
+                 name="{{ form.name.html_name }}"
+                 id="{{ form.name.id_for_label }}"
+                 value="{{ form.name.value|default_if_none:'' }}"
+                 maxlength="255"
+                 autocomplete="off"
+                 required
+                 {% if form.name.errors %}aria-invalid="true" aria-describedby="{{ form.name.auto_id }}_error"{% endif %}>
+          {% if form.name.errors %}
+            <ul id="{{ form.name.auto_id }}_error" class="mt-2 text-sm text-error">
+              {% for error in form.name.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div>
+          <label class="label mb-2 font-medium"
+                 for="{{ form.description.id_for_label }}">
+            {{ form.description.label }} <span class="font-normal text-base-content/60">(optional)</span>
+          </label>
+          <textarea class="textarea w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.description.errors %} textarea-error{% endif %}"
+                    name="{{ form.description.html_name }}"
+                    id="{{ form.description.id_for_label }}"
+                    rows="5"
+                    maxlength="2000"
+                    {% if form.description.errors %}aria-invalid="true" aria-describedby="{{ form.description.auto_id }}_error"{% endif %}>{{ form.description.value|default_if_none:'' }}</textarea>
+          {% if form.description.errors %}
+            <ul id="{{ form.description.auto_id }}_error"
+                class="mt-2 text-sm text-error">
+              {% for error in form.description.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div class="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label class="label mb-2 font-medium" for="{{ form.category.id_for_label }}">{{ form.category.label }}</label>
+            <select class="select w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.category.errors %} select-error{% endif %}"
+                    name="{{ form.category.html_name }}"
+                    id="{{ form.category.id_for_label }}"
+                    required
+                    {% if form.category.errors %}aria-invalid="true" aria-describedby="{{ form.category.auto_id }}_error"{% endif %}>
+              {% for value, label in form.category.field.choices %}
+                <option value="{{ value }}"
+                        {% if form.category.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            {% if form.category.errors %}
+              <ul id="{{ form.category.auto_id }}_error"
+                  class="mt-2 text-sm text-error">
+                {% for error in form.category.errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+          <div>
+            <label class="label mb-2 font-medium" for="{{ form.date.id_for_label }}">{{ form.date.label }}</label>
+            <input class="input w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.date.errors %} input-error{% endif %}"
+                   type="date"
+                   name="{{ form.date.html_name }}"
+                   id="{{ form.date.id_for_label }}"
+                   value="{{ form.date.value|default_if_none:'' }}"
+                   required
+                   {% if form.date.errors %}aria-invalid="true" aria-describedby="{{ form.date.auto_id }}_error"{% endif %}>
+            {% if form.date.errors %}
+              <ul id="{{ form.date.auto_id }}_error" class="mt-2 text-sm text-error">
+                {% for error in form.date.errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        </div>
+        <div>
+          <label class="label mb-2 font-medium" for="{{ form.amount.id_for_label }}">{{ form.amount.label }}</label>
+          <input class="input w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.amount.errors %} input-error{% endif %}"
+                 type="text"
+                 inputmode="decimal"
+                 name="{{ form.amount.html_name }}"
+                 id="{{ form.amount.id_for_label }}"
+                 value="{{ form.amount.value|default_if_none:'' }}"
+                 pattern="[0-9]+\.[0-9]{2}"
+                 placeholder="0.00"
+                 aria-describedby="amount-help{% if form.amount.errors %} {{ form.amount.auto_id }}_error{% endif %}"
+                 required
+                 {% if form.amount.errors %}aria-invalid="true"{% endif %}>
+          <p id="amount-help" class="mt-2 text-sm text-base-content/70">
+            Use a positive amount with exactly two decimal places, without a currency symbol.
+          </p>
+          {% if form.amount.errors %}
+            <ul id="{{ form.amount.auto_id }}_error" class="mt-2 text-sm text-error">
+              {% for error in form.amount.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div>
+          <label class="label mb-2 font-medium" for="{{ form.account.id_for_label }}">{{ form.account.label }}</label>
+          <select class="select w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.account.errors %} select-error{% endif %}"
+                  name="{{ form.account.html_name }}"
+                  id="{{ form.account.id_for_label }}"
+                  required
+                  aria-describedby="account-help{% if form.account.errors %} {{ form.account.auto_id }}_error{% endif %}"
+                  {% if form.account.errors %}aria-invalid="true"{% endif %}>
+            {% for value, label in form.account.field.choices %}
+              <option value="{{ value }}"
+                      {% if form.account.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p id="account-help" class="mt-2 text-sm text-base-content/70">
+            For a transfer, this is the source bank account.
+          </p>
+          {% if form.account.errors %}
+            <ul id="{{ form.account.auto_id }}_error" class="mt-2 text-sm text-error">
+              {% for error in form.account.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div>
+          <label class="label mb-2 font-medium"
+                 for="{{ form.target_account.id_for_label }}">
+            {{ form.target_account.label }} <span class="font-normal text-base-content/60">(transfers only)</span>
+          </label>
+          <select class="select w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.target_account.errors %} select-error{% endif %}"
+                  name="{{ form.target_account.html_name }}"
+                  id="{{ form.target_account.id_for_label }}"
+                  aria-describedby="target-account-help{% if form.target_account.errors %} {{ form.target_account.auto_id }}_error{% endif %}"
+                  {% if form.target_account.errors %}aria-invalid="true"{% endif %}>
+            {% for value, label in form.target_account.field.choices %}
+              <option value="{{ value }}"
+                      {% if form.target_account.value|stringformat:"s" == value|stringformat:"s" %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p id="target-account-help" class="mt-2 text-sm text-base-content/70">
+            Required only for transfers. “Keep private account” retains an existing target without
+            revealing its identity.
+          </p>
+          {% if form.target_account.errors %}
+            <ul id="{{ form.target_account.auto_id }}_error"
+                class="mt-2 text-sm text-error">
+              {% for error in form.target_account.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div>
+          <label class="label mb-2 font-medium"
+                 for="{{ form.additional_data.id_for_label }}">
+            {{ form.additional_data.label }} <span class="font-normal text-base-content/60">(optional)</span>
+          </label>
+          <textarea class="textarea w-full font-mono focus-visible:outline-2 focus-visible:outline-offset-2{% if form.additional_data.errors %} textarea-error{% endif %}"
+                    name="{{ form.additional_data.html_name }}"
+                    id="{{ form.additional_data.id_for_label }}"
+                    rows="6"
+                    aria-describedby="additional-data-help{% if form.additional_data.errors %} {{ form.additional_data.auto_id }}_error{% endif %}"
+                    {% if form.additional_data.errors %}aria-invalid="true"{% endif %}>{{ form.additional_data.value|default_if_none:'' }}</textarea>
+          <p id="additional-data-help" class="mt-2 text-sm text-base-content/70">
+            Enter one key = value pair per line, up to 25 pairs. Keys are limited to 100 characters
+            and values to 500 characters.
+          </p>
+          {% if form.additional_data.errors %}
+            <ul id="{{ form.additional_data.auto_id }}_error"
+                class="mt-2 text-sm text-error">
+              {% for error in form.additional_data.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+        <div class="flex flex-wrap gap-3 pt-2">
+          <button class="btn btn-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+                  type="submit">{% if mode == "edit" %}Save changes{% else %}Add transaction{% endif %}</button>
+          <a class="btn btn-ghost focus-visible:outline-2 focus-visible:outline-offset-2"
+             href="{% if transaction %}{% url 'transactions:detail' transaction.pk %}{% else %}{% url 'transactions:list' %}{% endif %}">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

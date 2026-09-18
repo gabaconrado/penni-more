@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ transaction.name }} | Transactions | Penni More{% endblock %}
+{% block content %}
+  <section class="mx-auto w-full max-w-2xl" aria-labelledby="page-title">
+    <nav class="mb-6 text-sm" aria-label="Breadcrumb">
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'transactions:list' %}">Transactions</a>
+      <span aria-hidden="true">/</span>
+      <a class="link link-hover focus-visible:outline-2 focus-visible:outline-offset-2"
+         href="{% url 'transactions:detail' transaction.pk %}">{{ transaction.name }}</a>
+      <span aria-hidden="true">/</span>
+      <span aria-current="page">Delete</span>
+    </nav>
+    <div class="rounded-box border border-error/40 bg-base-100 p-6 shadow-sm sm:p-8">
+      <h1 id="page-title" class="text-3xl font-bold tracking-tight">Delete transaction</h1>
+      <div class="alert alert-warning mt-6" role="alert">
+        <span>
+          Deleting <strong>{{ transaction.name }}</strong> permanently removes its balance effect
+          {% if presentation.target %}from both affected accounts{% else %}from the affected account{% endif %}.
+          This action cannot be undone.
+        </span>
+      </div>
+      <dl class="mt-6 grid gap-4 sm:grid-cols-2">
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Date</dt>
+          <dd class="mt-1">
+            {{ transaction.date|date:"Y-m-d" }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Amount</dt>
+          <dd class="mt-1 font-mono">
+            {{ transaction.amount|floatformat:2 }} {{ transaction.amount_currency_code }}
+          </dd>
+        </div>
+        <div>
+          <dt class="text-sm font-medium text-base-content/65">Account</dt>
+          <dd class="mt-1">{% if presentation.source.is_private %}Private account{% else %}{{ presentation.source.name }}{% endif %}</dd>
+        </div>
+        {% if presentation.target %}
+          <div>
+            <dt class="text-sm font-medium text-base-content/65">Target account</dt>
+            <dd class="mt-1">{% if presentation.target.is_private %}Private account{% else %}{{ presentation.target.name }}{% endif %}</dd>
+          </div>
+        {% endif %}
+      </dl>
+      <form method="post" class="mt-6 flex flex-wrap gap-3">
+        {% csrf_token %}
+        <button class="btn btn-error focus-visible:outline-2 focus-visible:outline-offset-2"
+                type="submit">Permanently delete transaction</button>
+        <a class="btn btn-ghost focus-visible:outline-2 focus-visible:outline-offset-2"
+           href="{% url 'transactions:detail' transaction.pk %}">Cancel</a>
+      </form>
+    </div>
+  </section>
+{% endblock %}

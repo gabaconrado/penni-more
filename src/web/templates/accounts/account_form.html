@@ -70,16 +70,20 @@
         <div>
           <label class="label mb-2 font-medium"
                  for="{{ form.account_type.id_for_label }}">{{ form.account_type.label }}</label>
-          <select class="select w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.account_type.errors %} select-error{% endif %}"
-                  name="{{ form.account_type.html_name }}"
-                  id="{{ form.account_type.id_for_label }}"
-                  required
-                  {% if form.account_type.errors %}aria-invalid="true" aria-describedby="{{ form.account_type.auto_id }}_error"{% endif %}>
+          <select class="select w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if form.account_type.errors %} select-error{% endif %}" name="{{ form.account_type.html_name }}" id="{{ form.account_type.id_for_label }}" required {% if account_type_locked %}disabled aria-disabled="true" aria-describedby="account-type-locked-help{% if form.account_type.errors %} {{ form.account_type.auto_id }}_error{% endif %}"{% elif form.account_type.errors %}aria-invalid="true" aria-describedby="{{ form.account_type.auto_id }}_error"{% endif %}>
             {% for value, label in form.account_type.field.choices %}
               <option value="{{ value }}"
                       {% if form.account_type.value == value %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
+          {% if account_type_locked %}
+            <p id="account-type-locked-help"
+               class="mt-2 text-sm text-base-content/70">
+              Account type cannot be changed because this account has transaction history. If the
+              account is a transfer target, only the source account owner can edit or delete that
+              transfer.
+            </p>
+          {% endif %}
           {% if form.account_type.errors %}
             <ul id="{{ form.account_type.auto_id }}_error"
                 class="mt-2 text-sm text-error">

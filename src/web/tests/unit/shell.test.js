@@ -59,6 +59,13 @@ describe("the server-rendered shell", () => {
     expect(template).toContain(">Accounts</a>");
   });
 
+  it("offers one authenticated Transactions navigation link", async () => {
+    const template = await readFile(templateUrl("base.html"), "utf8");
+
+    expect(template.match(/\{% url 'transactions:list' %\}/g)).toHaveLength(1);
+    expect(template).toContain(">Transactions</a>");
+  });
+
   it("announces Django status and error messages", async () => {
     const template = await readFile(templateUrl("base.html"), "utf8");
 

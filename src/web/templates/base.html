@@ -21,9 +21,11 @@
           <span class="badge badge-ghost badge-sm">{{ penni_more_version }}</span>
         </div>
         {% if user.is_authenticated %}
-          <div class="ml-auto flex min-w-0 items-center gap-2 sm:gap-4">
+          <div class="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 sm:gap-4">
             <a class="btn btn-ghost btn-sm focus-visible:outline-2 focus-visible:outline-offset-2"
                href="{% url 'accounts:list' %}">Accounts</a>
+            <a class="btn btn-ghost btn-sm focus-visible:outline-2 focus-visible:outline-offset-2"
+               href="{% url 'transactions:list' %}">Transactions</a>
             <p class="min-w-0 truncate text-sm text-base-content/70">
               Signed in as <strong class="font-semibold text-base-content">{{ user.email }}</strong>
             </p>
