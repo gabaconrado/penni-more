@@ -32,13 +32,51 @@ describe("the server-rendered shell", () => {
     expect(template).not.toContain("<script");
   });
 
-  it("labels the home page without describing accounts as future work", async () => {
+  it("provides an accessible POST dashboard filter without JavaScript", async () => {
     const template = await readFile(templateUrl("home.html"), "utf8");
 
     expect(template).toContain('aria-labelledby="page-title"');
-    expect(template).toContain("organizing your accounts");
-    expect(template).not.toContain("Account and transaction\n          features will be added");
-    expect(template).not.toContain("<form");
+    expect(template).toContain("Dashboard | Penni More");
+    expect(template).toContain('<form method="post"');
+    expect(template).toContain("{% csrf_token %}");
+    expect(template).toContain('type="date"');
+    expect(template).toContain("dashboard_filter_form.accounts");
+    expect(template).toContain("dashboard_filter_form.categories");
+    expect(template).toContain("multiple");
+    expect(template).toContain("Apply filters");
+    expect(template).not.toContain("<script");
+  });
+
+  it("associates dashboard filter errors and instructions with native controls", async () => {
+    const template = await readFile(templateUrl("home.html"), "utf8");
+
+    expect(template).toContain('role="alert"');
+    expect(template).toContain('aria-labelledby="dashboard-filter-error-title"');
+    expect(template).toContain('aria-describedby="accounts-help');
+    expect(template).toContain('aria-describedby="categories-help');
+    expect(template).toContain('aria-invalid="true"');
+    expect(template).toContain("dashboard_filter_form.non_field_errors");
+    expect(template).toContain("Please correct the filters below");
+  });
+
+  it("renders text-first graph and empty states", async () => {
+    const template = await readFile(templateUrl("home.html"), "utf8");
+
+    expect(template).toContain("{% elif not graphs_available %}");
+    expect(template).toContain("{% if dashboard_filter_form.accounts.field.queryset.exists %}");
+    expect(template).toContain("Select at least one account");
+    expect(template).toContain("No accounts available");
+    expect(template).toContain("Create an account before using the dashboard graphs.");
+    expect(template).toContain("{% url 'accounts:create' %}");
+    expect(template).toContain(">Create account</a>");
+    expect(template).toContain("Graphs are unavailable until the filter errors are corrected.");
+    expect(template).toContain('aria-labelledby="income-expenses-title"');
+    expect(template).toContain('aria-labelledby="category-expenses-title"');
+    expect(template).toContain("{{ bar.label }}");
+    expect(template).toContain("{{ bar.amount|floatformat:2 }} {{ dashboard_currency_code }}");
+    expect(template).toContain("No categories selected.");
+    expect(template.match(/aria-hidden="true"/g)).toHaveLength(2);
+    expect(template).not.toContain('role="img"');
   });
 
   it("shows identity and a CSRF-protected POST logout only to authenticated users", async () => {

@@ -1,19 +1,211 @@
 {% extends "base.html" %}
-{% block title %}Home | Penni More{% endblock %}
+{% block title %}Dashboard | Penni More{% endblock %}
 {% block content %}
-  <section class="hero rounded-box border border-base-300 bg-base-100 shadow-sm"
-           aria-labelledby="page-title">
-    <div class="hero-content w-full items-start px-6 py-12 text-left sm:px-10 sm:py-16">
-      <div class="max-w-2xl">
-        <p class="mb-3 text-sm font-semibold tracking-wide text-base-content/70 uppercase">Personal money manager</p>
-        <h1 id="page-title" class="text-4xl font-bold tracking-tight sm:text-5xl">Penni More</h1>
-        <p class="mt-5 text-lg leading-8 text-base-content/75">
-          A private, responsive home for organizing your accounts and managing personal finances.
-        </p>
-        <div class="alert alert-info mt-8" role="status">
-          <span>Use Accounts to create an account or review one shared with you.</span>
+  <div class="space-y-8">
+    <header aria-labelledby="page-title">
+      <p class="text-sm font-semibold tracking-wide text-base-content/70 uppercase">Personal money manager</p>
+      <h1 id="page-title"
+          class="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Dashboard</h1>
+      <p class="mt-3 max-w-3xl text-base-content/70">
+        Compare income and expenses across accounts that use the same currency. Dates include both
+        the start and end day.
+      </p>
+    </header>
+    <section class="rounded-box border border-base-300 bg-base-100 p-5 shadow-sm sm:p-8"
+             aria-labelledby="dashboard-filters-title">
+      <h2 id="dashboard-filters-title" class="text-xl font-semibold">Filters</h2>
+      <p id="dashboard-filters-help" class="mt-2 text-sm text-base-content/70">
+        Choose one or more accounts in a single currency. Categories affect only the expenses by
+        category graph.
+      </p>
+      {% if dashboard_filter_form.errors %}
+        <div class="alert alert-error mt-6"
+             role="alert"
+             aria-labelledby="dashboard-filter-error-title">
+          <div>
+            <h3 id="dashboard-filter-error-title" class="font-semibold">Please correct the filters below</h3>
+            {% if dashboard_filter_form.non_field_errors %}
+              <ul class="mt-1 list-disc pl-5">
+                {% for error in dashboard_filter_form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
         </div>
+      {% endif %}
+      <form method="post"
+            action="{% url 'home' %}"
+            class="mt-6 space-y-6"
+            aria-describedby="dashboard-filters-help">
+        {% csrf_token %}
+        <div class="grid gap-5 sm:grid-cols-2">
+          <div>
+            <label class="label mb-2 font-medium"
+                   for="{{ dashboard_filter_form.start.id_for_label }}">{{ dashboard_filter_form.start.label }}</label>
+            <input class="input w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if dashboard_filter_form.start.errors %} input-error{% endif %}"
+                   type="date"
+                   name="{{ dashboard_filter_form.start.html_name }}"
+                   id="{{ dashboard_filter_form.start.id_for_label }}"
+                   value="{% if dashboard_filter_form.is_bound %}{{ dashboard_filter_form.start.value|default_if_none:'' }}{% else %}{{ dashboard_filter_form.start.value|date:'Y-m-d' }}{% endif %}"
+                   required
+                   {% if dashboard_filter_form.start.errors %}aria-invalid="true" aria-describedby="{{ dashboard_filter_form.start.auto_id }}_error"{% endif %}>
+            {% if dashboard_filter_form.start.errors %}
+              <ul id="{{ dashboard_filter_form.start.auto_id }}_error"
+                  class="mt-2 text-sm text-error">
+                {% for error in dashboard_filter_form.start.errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+          <div>
+            <label class="label mb-2 font-medium"
+                   for="{{ dashboard_filter_form.end.id_for_label }}">{{ dashboard_filter_form.end.label }}</label>
+            <input class="input w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if dashboard_filter_form.end.errors %} input-error{% endif %}"
+                   type="date"
+                   name="{{ dashboard_filter_form.end.html_name }}"
+                   id="{{ dashboard_filter_form.end.id_for_label }}"
+                   value="{% if dashboard_filter_form.is_bound %}{{ dashboard_filter_form.end.value|default_if_none:'' }}{% else %}{{ dashboard_filter_form.end.value|date:'Y-m-d' }}{% endif %}"
+                   required
+                   {% if dashboard_filter_form.end.errors %}aria-invalid="true" aria-describedby="{{ dashboard_filter_form.end.auto_id }}_error"{% endif %}>
+            {% if dashboard_filter_form.end.errors %}
+              <ul id="{{ dashboard_filter_form.end.auto_id }}_error"
+                  class="mt-2 text-sm text-error">
+                {% for error in dashboard_filter_form.end.errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        </div>
+        <div class="grid gap-5 lg:grid-cols-2">
+          <div>
+            <label class="label mb-2 font-medium"
+                   for="{{ dashboard_filter_form.accounts.id_for_label }}">{{ dashboard_filter_form.accounts.label }}</label>
+            <select class="select min-h-36 w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if dashboard_filter_form.accounts.errors %} select-error{% endif %}"
+                    name="{{ dashboard_filter_form.accounts.html_name }}"
+                    id="{{ dashboard_filter_form.accounts.id_for_label }}"
+                    multiple
+                    size="6"
+                    aria-describedby="accounts-help{% if dashboard_filter_form.accounts.errors %} {{ dashboard_filter_form.accounts.auto_id }}_error{% endif %}"
+                    {% if dashboard_filter_form.accounts.errors %}aria-invalid="true"{% endif %}>
+              {% for value, label in dashboard_filter_form.accounts.field.choices %}
+                <option value="{{ value }}" {% if dashboard_filter_form.is_bound %}{% if value|stringformat:'s' in dashboard_filter_form.accounts.value %}selected{% endif %}{% elif value in dashboard_filter_form.accounts.value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <p id="accounts-help" class="mt-2 text-sm text-base-content/70">
+              No account is selected by default. To select several, use Ctrl on Windows or Linux,
+              or Command on macOS. All selections must use the same currency.
+            </p>
+            {% if dashboard_filter_form.accounts.errors %}
+              <ul id="{{ dashboard_filter_form.accounts.auto_id }}_error"
+                  class="mt-2 text-sm text-error">
+                {% for error in dashboard_filter_form.accounts.errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+          <div>
+            <label class="label mb-2 font-medium"
+                   for="{{ dashboard_filter_form.categories.id_for_label }}">{{ dashboard_filter_form.categories.label }}</label>
+            <select class="select min-h-36 w-full focus-visible:outline-2 focus-visible:outline-offset-2{% if dashboard_filter_form.categories.errors %} select-error{% endif %}"
+                    name="{{ dashboard_filter_form.categories.html_name }}"
+                    id="{{ dashboard_filter_form.categories.id_for_label }}"
+                    multiple
+                    size="6"
+                    aria-describedby="categories-help{% if dashboard_filter_form.categories.errors %} {{ dashboard_filter_form.categories.auto_id }}_error{% endif %}"
+                    {% if dashboard_filter_form.categories.errors %}aria-invalid="true"{% endif %}>
+              {% for value, label in dashboard_filter_form.categories.field.choices %}
+                <option value="{{ value }}" {% if dashboard_filter_form.is_bound %}{% if value|stringformat:'s' in dashboard_filter_form.categories.value %}selected{% endif %}{% elif value in dashboard_filter_form.categories.value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <p id="categories-help" class="mt-2 text-sm text-base-content/70">
+              All categories, including inactive categories, are selected by default. Clear every
+              selection to show no category bars.
+            </p>
+            {% if dashboard_filter_form.categories.errors %}
+              <ul id="{{ dashboard_filter_form.categories.auto_id }}_error"
+                  class="mt-2 text-sm text-error">
+                {% for error in dashboard_filter_form.categories.errors %}<li>{{ error }}</li>{% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        </div>
+        <button class="btn btn-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+                type="submit">Apply filters</button>
+      </form>
+    </section>
+    {% if dashboard_filter_form.errors %}
+      <section class="rounded-box border border-base-300 bg-base-100 p-6 shadow-sm"
+               aria-labelledby="dashboard-results-title">
+        <h2 id="dashboard-results-title" class="text-xl font-semibold">Dashboard results</h2>
+        <p class="mt-2 text-base-content/70">
+          Graphs are unavailable until the filter errors are corrected.
+        </p>
+      </section>
+    {% elif not graphs_available %}
+      <section class="rounded-box border border-base-300 bg-base-100 p-6 shadow-sm"
+               aria-labelledby="dashboard-results-title">
+        <h2 id="dashboard-results-title" class="text-xl font-semibold">Dashboard results</h2>
+        {% if dashboard_filter_form.accounts.field.queryset.exists %}
+          <p class="mt-2 text-base-content/70">
+            Select at least one account, then apply the filters to see income and expense graphs.
+          </p>
+        {% else %}
+          <h3 class="mt-4 font-semibold">No accounts available</h3>
+          <p class="mt-2 text-base-content/70">Create an account before using the dashboard graphs.</p>
+          <a class="btn btn-primary mt-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+             href="{% url 'accounts:create' %}">Create account</a>
+        {% endif %}
+      </section>
+    {% else %}
+      <div class="grid gap-8 lg:grid-cols-2">
+        <figure class="min-w-0 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6"
+                aria-labelledby="income-expenses-title">
+          <figcaption>
+            <h2 id="income-expenses-title" class="text-xl font-semibold">Income and expenses</h2>
+            <p class="mt-2 text-sm text-base-content/70">
+              Totals for the selected accounts and inclusive date range. Transfers are excluded.
+            </p>
+          </figcaption>
+          <div class="mt-6 grid h-64 grid-cols-2 gap-5 border-b border-base-300 px-2 sm:gap-8 sm:px-6">
+            {% for bar in summary_bars %}
+              <div class="flex min-w-0 flex-col justify-end text-center">
+                <p class="break-words font-semibold">{{ bar.label }}</p>
+                <p class="mt-1 break-words text-sm tabular-nums">
+                  {{ bar.amount|floatformat:2 }} {{ dashboard_currency_code }}
+                </p>
+                <div class="mt-3 flex h-40 items-end justify-center" aria-hidden="true">
+                  <div class="w-full max-w-28 rounded-t bg-primary"
+                       style="height: {{ bar.percentage }}%"></div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </figure>
+        <figure class="min-w-0 rounded-box border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6"
+                aria-labelledby="category-expenses-title">
+          <figcaption>
+            <h2 id="category-expenses-title" class="text-xl font-semibold">Expenses by category</h2>
+            <p class="mt-2 text-sm text-base-content/70">
+              Selected categories are ordered from highest to lowest expense.
+            </p>
+          </figcaption>
+          {% if category_bars %}
+            <ol class="mt-6 space-y-5">
+              {% for bar in category_bars %}
+                <li class="min-w-0">
+                  <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                    <span class="min-w-0 break-words font-medium">{{ bar.label }}</span>
+                    <span class="shrink-0 text-sm tabular-nums">{{ bar.amount|floatformat:2 }} {{ dashboard_currency_code }}</span>
+                  </div>
+                  <div class="mt-2 h-4 overflow-hidden rounded bg-base-200"
+                       aria-hidden="true">
+                    <div class="h-full rounded bg-secondary"
+                         style="width: {{ bar.percentage }}%"></div>
+                  </div>
+                </li>
+              {% endfor %}
+            </ol>
+          {% else %}
+            <p class="mt-6 text-base-content/70">No categories selected.</p>
+          {% endif %}
+        </figure>
       </div>
-    </div>
-  </section>
+    {% endif %}
+  </div>
 {% endblock %}
