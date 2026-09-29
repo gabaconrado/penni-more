@@ -1,0 +1,7 @@
+interface:
+  display_name: "Statement importer"
+  short_description: "Turn statement PDFs into reviewed CSVs"
+  default_prompt: "Use $statement to review a text-based bank statement PDF and create an import CSV."
+
+policy:
+  allow_implicit_invocation: true

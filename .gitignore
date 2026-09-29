@@ -18,6 +18,7 @@ src/web/static/css/app.css
 .env
 .env.*
 !.env.example
+/.local/statement/
 
 # Editors and operating systems
 .idea/
